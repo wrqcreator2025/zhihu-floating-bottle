@@ -82,30 +82,64 @@ func (c *Client) User(ctx context.Context, token string) (User, error) {
 	}
 	defer res.Body.Close()
 	var raw map[string]any
-	if json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&raw) != nil {
+	decoder := json.NewDecoder(io.LimitReader(res.Body, 1<<20))
+	decoder.UseNumber()
+	if decoder.Decode(&raw) != nil {
 		return out, domain.Fail(503, "ZHIHU_PROTOCOL_ERROR", "知乎用户响应格式无效")
 	}
-	for _, key := range []string{"data", "user"} {
-		if nested, ok := raw[key].(map[string]any); ok {
-			raw = nested
-		}
+	profile, ok := zhihuUserObject(raw)
+	if !ok {
+		return User{}, domain.Fail(503, "ZHIHU_SUBJECT_MISSING", "知乎未返回稳定用户标识")
 	}
 	value := func(keys ...string) string {
 		for _, key := range keys {
-			if v, ok := raw[key].(string); ok && v != "" {
+			if v, ok := profile[key].(string); ok && v != "" {
 				return v
+			}
+			if v, ok := profile[key].(json.Number); ok && v.String() != "" {
+				return v.String()
 			}
 		}
 		return ""
 	}
 	out = User{ID: value("id", "user_id", "uid", "url_token"), Name: value("name", "fullname", "full_name"), Avatar: value("avatar_url", "avatarUrl", "avatar")}
-	if out.ID == "" {
-		return User{}, domain.Fail(503, "ZHIHU_SUBJECT_MISSING", "知乎未返回稳定用户标识")
-	}
 	if len(out.ID) > 180 || len(out.Name) > 128 || len(out.Avatar) > 2048 {
 		return User{}, domain.Fail(503, "ZHIHU_PROTOCOL_ERROR", "知乎用户响应字段超限")
 	}
 	return out, nil
+}
+
+func zhihuUserObject(raw map[string]any) (map[string]any, bool) {
+	queue := []map[string]any{raw}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, key := range []string{"id", "user_id", "uid", "url_token"} {
+			switch value := current[key].(type) {
+			case string:
+				if value != "" {
+					return current, true
+				}
+			case json.Number:
+				if value.String() != "" {
+					return current, true
+				}
+			}
+		}
+		for _, key := range []string{"data", "user", "user_info", "profile", "member"} {
+			switch nested := current[key].(type) {
+			case map[string]any:
+				queue = append(queue, nested)
+			case []any:
+				for _, item := range nested {
+					if object, ok := item.(map[string]any); ok {
+						queue = append(queue, object)
+					}
+				}
+			}
+		}
+	}
+	return nil, false
 }
 func Crypt(key string) (cipher.AEAD, error) {
 	raw, err := base64.StdEncoding.DecodeString(key)

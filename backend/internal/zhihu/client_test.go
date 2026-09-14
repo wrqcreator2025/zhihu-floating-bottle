@@ -95,6 +95,18 @@ func TestOAuthCode20000AndEncryption(t *testing.T) {
 		t.Fatal("encryption round trip")
 	}
 }
+func TestOAuthUserAcceptsNestedProfileAndNumericID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"code":20000,"data":{"user_info":{"id":12345,"name":"知乎用户","avatar_url":"https://example.test/avatar.png"}}}`)
+	}))
+	defer server.Close()
+	c := New("secret", "app", "key", "https://example.test/callback")
+	c.OAuthBase = server.URL
+	user, err := c.User(context.Background(), "oauth-token")
+	if err != nil || user.ID != "12345" || user.Name != "知乎用户" {
+		t.Fatalf("user profile %#v %v", user, err)
+	}
+}
 func TestErrorsAndPaging(t *testing.T) {
 	for _, body := range []string{`{"Data":{}}`, `{"Code":20001,"Data":{}}`, `{"Code":30002,"Data":{}}`, `not json`} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, body) }))
