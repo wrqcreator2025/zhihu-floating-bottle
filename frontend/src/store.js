@@ -8,19 +8,10 @@ const blank = () => ({
   draft: { body: '', target: '' },
 });
 const string = (v) => typeof v === 'string';
-const demoReply =
-  '我第一次投实习时也连续没有回音。后来把目标拆成每天能做的一小步，先请朋友看项目介绍，再继续投递。那段停滞并不说明你不适合，只是还没遇到合适的入口。';
-const makeDemoContact = (id) => ({
-  id: `contact-${id}`,
-  alias: '匿名回信者 01',
-  experience: '经历过第一次寻找实习受挫，后来继续尝试。',
-  reply: demoReply,
-  chatStatus: 'none',
-  chatMessages: [],
-});
 const normalizeBottle = (b) => {
   if (b.kind === 'sent') {
-    b.contacts ??= [makeDemoContact(b.id)];
+    b.contacts = (b.contacts ?? []).filter((contact) => contact.id !== `contact-${b.id}`);
+    if (!b.contacts.length && b.status === 'replied') b.status = 'saved';
     b.contacts.forEach((contact) => {
       contact.chatStatus ??= 'none';
       contact.chatMessages ??= [];
@@ -65,6 +56,7 @@ export function createStore(storage, onError = () => {}) {
       const parsed = JSON.parse(raw);
       if (!validState(parsed)) throw Error('invalid');
       state = parsed;
+      state.bottles = state.bottles.filter((b) => !b.demo && !b.sampleId?.startsWith('first-internship'));
       state.bottles.forEach(normalizeBottle);
     }
   } catch {
@@ -92,11 +84,10 @@ export function createStore(storage, onError = () => {}) {
         kind: 'sent',
         body: body.trim(),
         target: target.trim(),
-        status: 'replied',
+        status: 'saved',
         contacts: [],
         createdAt: Date.now(),
       };
-      bottle.contacts.push(makeDemoContact(bottle.id));
       state.bottles.unshift(bottle);
       state.draft = { body: '', target: '' };
       persist();
@@ -118,7 +109,6 @@ export function createStore(storage, onError = () => {}) {
         chatInvite: null,
         chatMessages: [],
         createdAt: Date.now(),
-        demo: true,
       };
       state.bottles.unshift(bottle);
       persist();
@@ -212,8 +202,3 @@ export function createStore(storage, onError = () => {}) {
     },
   };
 }
-export const SAMPLE = {
-  id: 'first-internship',
-  body: '第一次找实习，我总觉得自己还不够格。\n\n最近开始准备第一份产品实习。岗位要求里的每一条，都让我觉得自己还没有准备好。投了几份没有回音，就更不敢继续了。\n\n你第一次找实习时，也会这样吗？后来是哪一步，让你不再只盯着自己不会的东西？',
-  target: '经历过第一次实习求职受挫，后来继续尝试的人。',
-};

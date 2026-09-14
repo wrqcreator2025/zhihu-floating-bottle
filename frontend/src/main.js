@@ -1,7 +1,7 @@
 import '@fontsource-variable/noto-sans-sc';
 import './style.css';
 import { createWorld } from './scene.js';
-import { createStore, SAMPLE } from './store.js';
+import { createStore } from './store.js';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
@@ -48,20 +48,16 @@ let view = 'home',
   lastFocus = null,
   uncorking = false,
   pickingUp = false,
-  currentIncoming = SAMPLE;
+  currentIncoming = null;
 const sheet = $('#sheet');
 const iconArrow = '<span aria-hidden="true">↗</span>';
 const btn = (action, text, cls = 'text-button') =>
   `<button class="${cls}" data-action="${action}">${text}</button>`;
 const closeButton = () =>
   '<button class="close" data-action="close" aria-label="关闭">×</button>';
-const makeIncoming = () => ({
-  ...SAMPLE,
-  id: `${SAMPLE.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-});
 
 function updateScene() {
-  world?.setSampleVisible(true);
+  world?.setSampleVisible(false);
   world?.updateCabinet();
 }
 function setView(next) {
@@ -134,8 +130,7 @@ function renderNavigation() {
   let hotspots = '';
   if (['home', 'island'].includes(view)) {
     hotspots += `<button class="hotspot" data-anchor="house" data-action="${view === 'home' ? 'island' : 'room'}" aria-label="${view === 'home' ? '靠近小岛' : '进入小屋'}"><i></i><span>${view === 'home' ? '靠近小岛' : '进入小屋'}</span></button>`;
-    hotspots +=
-      '<button class="hotspot bottle-hotspot" data-anchor="bottle" data-action="bottle" aria-label="捡起示例来信"><i></i><span>一封示例来信</span></button>';
+
   }
   if (view === 'room')
     hotspots =
@@ -387,7 +382,7 @@ function launch(message) {
 function prepareBottle(nextMode) {
   if (sheet.open) closeSheet();
   mode = nextMode;
-  if (nextMode === 'receive') currentIncoming = makeIncoming();
+  if (nextMode === 'receive') currentIncoming = null;
   uncorking = false;
   pickingUp = true;
   world?.setBottleKind(nextMode);
@@ -424,7 +419,11 @@ function action(a) {
   }
   switch (a) {
 	case 'zhihu-login':
-	  window.location.assign(`${API_BASE}/api/v1/auth/zhihu`);
+      if (!API_BASE) {
+        toast('登录服务尚未配置，请设置 VITE_API_BASE_URL 后重新部署。');
+        break;
+      }
+      window.location.assign(`${API_BASE}/api/v1/auth/zhihu`);
 	  break;
     case 'picked':
       if (view !== 'bottle') return;
@@ -523,7 +522,7 @@ function action(a) {
     case 'sample':
     case 'receive':
     case 'bottle':
-      prepareBottle('receive');
+      toast('暂时没有新的来信。');
       break;
     case 'uncork':
       if (view !== 'bottle' || pickingUp || uncorking) return;

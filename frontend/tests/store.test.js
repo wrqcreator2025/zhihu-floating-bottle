@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStore, SAMPLE, STORAGE_KEY } from '../src/store.js';
+import { createStore, STORAGE_KEY } from '../src/store.js';
+const SAMPLE = {
+  id: 'test-incoming',
+  body: '第一次找实习，我总觉得自己还不够格。\n\n最近开始准备第一份产品实习。岗位要求里的每一条，都让我觉得自己还没有准备好。投了几份没有回音，就更不敢继续了。\n\n你第一次找实习时，也会这样吗？后来是哪一步，让你不再只盯着自己不会的东西？',
+  target: '经历过第一次实习求职受挫，后来继续尝试的人。',
+};
+
 const memory = () => {
   const m = new Map();
   return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) };
@@ -70,8 +76,13 @@ test('经历必须本人确认，编辑关闭接收不改变瓶子', () => {
   assert.equal(store.get().bottles.length, 1);
 });
 test('发信者邀请回信者后，必须经对方接受才能匿名聊天', () => {
-  const store = createStore(memory());
+  const storage = memory();
+  let store = createStore(storage);
   const bottle = store.send('最近对未来很犹豫', '走过相似阶段的人');
+  const state = store.get();
+  state.bottles[0].contacts = [{ id: 'real-contact', chatStatus: 'none', chatMessages: [] }];
+  storage.setItem(STORAGE_KEY, JSON.stringify(state));
+  store = createStore(storage);
   const contact = store.get().bottles[0].contacts[0];
   store.requestChat(bottle.id, contact.id);
   assert.equal(store.get().bottles[0].contacts[0].chatStatus, 'pending');
@@ -83,8 +94,13 @@ test('发信者邀请回信者后，必须经对方接受才能匿名聊天', ()
   assert.equal(savedContact.chatMessages[0].body, '谢谢你的回信');
 });
 test('匿名聊天快速拦截站外联系和风险词句', () => {
-  const store = createStore(memory());
+  const storage = memory();
+  let store = createStore(storage);
   const bottle = store.send('最近对未来很犹豫', '走过相似阶段的人');
+  const state = store.get();
+  state.bottles[0].contacts = [{ id: 'real-contact', chatStatus: 'none', chatMessages: [] }];
+  storage.setItem(STORAGE_KEY, JSON.stringify(state));
+  store = createStore(storage);
   const contact = store.get().bottles[0].contacts[0];
   store.requestChat(bottle.id, contact.id);
   store.decideChat(bottle.id, 'active', contact.id);
@@ -121,4 +137,22 @@ test('损坏的存储可恢复，禁止存储时明确提示且保留内存数�
   blocked.send('问题', '目标');
   assert.equal(blocked.get().bottles.length, 1);
   assert.equal(errors.length, 2);
+});
+
+test('不会生成示例回信，刷新清理旧示例并保留本人内容', () => {
+  const storage = memory();
+  const store = createStore(storage);
+  const bottle = store.send('本人内容', '目标');
+  assert.deepEqual(bottle.contacts, []);
+  assert.equal(bottle.status, 'saved');
+  const state = store.get();
+  state.bottles[0].contacts = [{id: `contact-${bottle.id}`}];
+  state.bottles[0].status = 'replied';
+  state.bottles.push({...bottle, id: 'sample', kind: 'received', demo: true});
+  storage.setItem(STORAGE_KEY, JSON.stringify(state));
+  const restored = createStore(storage).get();
+  assert.equal(restored.bottles.length, 1);
+  assert.equal(restored.bottles[0].body, '本人内容');
+  assert.deepEqual(restored.bottles[0].contacts, []);
+  assert.equal(restored.bottles[0].status, 'saved');
 });
