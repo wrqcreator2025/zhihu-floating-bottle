@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"crypto/cipher"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,7 +10,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -31,19 +29,16 @@ type Options struct {
 	SecureCookies bool
 }
 type oauthAttempt struct {
-	User, Nonce string
-	Login       bool
-	Expires     time.Time
+	User  string
+	Login bool
 }
 type api struct {
-	s     *service.Service
-	o     Options
-	mu    sync.Mutex
-	oauth map[string]oauthAttempt
+	s *service.Service
+	o Options
 }
 
 func New(s *service.Service, o Options) *gin.Engine {
-	a := &api{s: s, o: o, oauth: map[string]oauthAttempt{}}
+	a := &api{s: s, o: o}
 	r := gin.New()
 	r.SetTrustedProxies(nil)
 	r.Use(a.middleware())
@@ -703,16 +698,13 @@ func (a *api) oauthStart(c *gin.Context) {
 		respond(c, nil, domain.Fail(503, "ZHIHU_OAUTH_UNAVAILABLE", "知乎授权尚未配置"), 503)
 		return
 	}
-	state, nonce := domain.ID()+domain.ID(), domain.ID()+domain.ID()
-	a.mu.Lock()
-	for k, v := range a.oauth {
-		if time.Now().After(v.Expires) {
-			delete(a.oauth, k)
-		}
+	state := domain.ID() + domain.ID()
+	cookie, err := a.oauthAttemptCookie(state, user(c), false)
+	if err != nil {
+		respond(c, nil, domain.Fail(503, "OAUTH_START_FAILED", "暂时无法开始知乎授权"), 503)
+		return
 	}
-	a.oauth[state] = oauthAttempt{User: user(c), Nonce: nonce, Expires: time.Now().Add(10 * time.Minute)}
-	a.mu.Unlock()
-	http.SetCookie(c.Writer, a.oauthCookie(nonce, 600))
+	http.SetCookie(c.Writer, cookie)
 	respond(c, gin.H{"authorizationUrl": a.s.Zhihu.Authorize(state)}, nil, 200)
 }
 
@@ -721,16 +713,13 @@ func (a *api) oauthLogin(c *gin.Context) {
 		respond(c, nil, domain.Fail(503, "ZHIHU_OAUTH_UNAVAILABLE", "知乎登录尚未配置"), 503)
 		return
 	}
-	state, nonce := domain.ID()+domain.ID(), domain.ID()+domain.ID()
-	a.mu.Lock()
-	for key, attempt := range a.oauth {
-		if time.Now().After(attempt.Expires) {
-			delete(a.oauth, key)
-		}
+	state := domain.ID() + domain.ID()
+	cookie, err := a.oauthAttemptCookie(state, "", true)
+	if err != nil {
+		respond(c, nil, domain.Fail(503, "OAUTH_START_FAILED", "暂时无法开始知乎登录"), 503)
+		return
 	}
-	a.oauth[state] = oauthAttempt{Nonce: nonce, Login: true, Expires: time.Now().Add(10 * time.Minute)}
-	a.mu.Unlock()
-	http.SetCookie(c.Writer, a.oauthCookie(nonce, 600))
+	http.SetCookie(c.Writer, cookie)
 	c.Redirect(http.StatusFound, a.s.Zhihu.Authorize(state))
 }
 
@@ -760,9 +749,13 @@ func (a *api) logout(c *gin.Context) {
 func (a *api) oauthCallback(c *gin.Context) {
 	state := c.Query("state")
 	cookie, _ := c.Cookie("zhihu_oauth")
-	attempt, ok := a.takeOAuthAttempt(state, cookie)
-	if !ok {
-		respond(c, nil, domain.Fail(400, "OAUTH_STATE_INVALID", "授权回调无法与本次操作绑定，请重新授权"), 400)
+	attempt, reason := a.takeOAuthAttempt(state, cookie)
+	if reason != "" {
+		code, message := "OAUTH_STATE_INVALID", "授权回调签名无效或已经过期，请重新授权"
+		if reason == "cookie_missing" {
+			code, message = "OAUTH_COOKIE_MISSING", "浏览器未带回授权 Cookie；请在同一浏览器完成授权并允许跨站 Cookie"
+		}
+		respond(c, nil, domain.Fail(400, code, message), 400)
 		return
 	}
 	code := c.Query("authorization_code")
@@ -794,41 +787,45 @@ func (a *api) oauthCallback(c *gin.Context) {
 	respond(c, gin.H{"status": "connected"}, err, 200)
 }
 
-func (a *api) takeOAuthAttempt(state, cookie string) (oauthAttempt, bool) {
+func (a *api) oauthAttemptCookie(state, user string, login bool) (*http.Cookie, error) {
+	kind := "connect"
+	if login {
+		kind = "login"
+	}
+	value, err := a.o.Auth.Issue(strings.Join([]string{"oauth", kind, state, user}, "|"), 10*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	return a.oauthCookie(value, 600), nil
+}
+
+func (a *api) takeOAuthAttempt(state, cookie string) (oauthAttempt, string) {
 	if cookie == "" {
-		return oauthAttempt{}, false
+		return oauthAttempt{}, "cookie_missing"
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	now := time.Now()
-	for key, attempt := range a.oauth {
-		if !attempt.Expires.After(now) {
-			delete(a.oauth, key)
+	subject, err := a.o.Auth.Verify(cookie)
+	if err != nil {
+		return oauthAttempt{}, "cookie_invalid"
+	}
+	parts := strings.SplitN(subject, "|", 4)
+	if len(parts) != 4 || parts[0] != "oauth" || parts[2] == "" {
+		return oauthAttempt{}, "cookie_invalid"
+	}
+	if state != "" && state != parts[2] {
+		return oauthAttempt{}, "state_mismatch"
+	}
+	switch parts[1] {
+	case "login":
+		if parts[3] != "" {
+			return oauthAttempt{}, "cookie_invalid"
 		}
-	}
-	if state != "" {
-		attempt, ok := a.oauth[state]
-		if !ok || subtle.ConstantTimeCompare([]byte(cookie), []byte(attempt.Nonce)) != 1 {
-			return oauthAttempt{}, false
+		return oauthAttempt{Login: true}, ""
+	case "connect":
+		if parts[3] == "" {
+			return oauthAttempt{}, "cookie_invalid"
 		}
-		delete(a.oauth, state)
-		return attempt, true
+		return oauthAttempt{User: parts[3]}, ""
+	default:
+		return oauthAttempt{}, "cookie_invalid"
 	}
-	// The hackathon OAuth callback may omit state. The random HttpOnly cookie
-	// still binds the callback to the browser that initiated this one-time flow.
-	var matchedKey string
-	var matched oauthAttempt
-	for key, attempt := range a.oauth {
-		if subtle.ConstantTimeCompare([]byte(cookie), []byte(attempt.Nonce)) == 1 {
-			if matchedKey != "" {
-				return oauthAttempt{}, false
-			}
-			matchedKey, matched = key, attempt
-		}
-	}
-	if matchedKey == "" {
-		return oauthAttempt{}, false
-	}
-	delete(a.oauth, matchedKey)
-	return matched, true
 }

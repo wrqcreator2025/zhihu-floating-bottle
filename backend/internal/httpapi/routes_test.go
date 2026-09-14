@@ -3,33 +3,42 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 
+	"driftbottle/internal/auth"
 	"driftbottle/internal/service"
 )
 
-func TestOAuthAttemptAcceptsMissingStateWithBoundCookie(t *testing.T) {
-	a := &api{oauth: map[string]oauthAttempt{
-		"expected-state": {Nonce: "browser-nonce", Login: true, Expires: time.Now().Add(time.Minute)},
-	}}
-	attempt, ok := a.takeOAuthAttempt("", "browser-nonce")
-	if !ok || !attempt.Login || len(a.oauth) != 0 {
-		t.Fatalf("attempt=%+v ok=%v remaining=%d", attempt, ok, len(a.oauth))
+func oauthTestAPI() *api {
+	return &api{o: Options{Auth: auth.Auth{Key: []byte(strings.Repeat("k", 32)), Issuer: "test", Audience: "test"}}}
+}
+
+func TestOAuthAttemptAcceptsSignedCookieWithoutReturnedState(t *testing.T) {
+	a := oauthTestAPI()
+	cookie, err := a.oauthAttemptCookie("expected-state", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, reason := a.takeOAuthAttempt("", cookie.Value)
+	if reason != "" || !attempt.Login {
+		t.Fatalf("attempt=%+v reason=%q", attempt, reason)
 	}
 }
 
 func TestOAuthAttemptRejectsWrongStateOrCookie(t *testing.T) {
+	a := oauthTestAPI()
+	cookie, err := a.oauthAttemptCookie("expected-state", "user-1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct{ state, cookie string }{
-		{"wrong-state", "browser-nonce"},
-		{"expected-state", "wrong-nonce"},
-		{"", "wrong-nonce"},
+		{"wrong-state", cookie.Value},
+		{"expected-state", cookie.Value + "tampered"},
+		{"", ""},
 	} {
-		a := &api{oauth: map[string]oauthAttempt{
-			"expected-state": {Nonce: "browser-nonce", Expires: time.Now().Add(time.Minute)},
-		}}
-		if _, ok := a.takeOAuthAttempt(tc.state, tc.cookie); ok {
-			t.Fatalf("accepted state=%q cookie=%q", tc.state, tc.cookie)
+		if _, reason := a.takeOAuthAttempt(tc.state, tc.cookie); reason == "" {
+			t.Fatalf("accepted state=%q cookie length=%d", tc.state, len(tc.cookie))
 		}
 	}
 }
