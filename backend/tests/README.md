@@ -19,3 +19,12 @@ python3 -m unittest discover -s tests -p 'test_database.py' -k experience_delete
 ```
 
 只依赖 Python 标准库和 Docker Compose。测试在真实 MySQL 上执行，数据事务回滚，不测试尚未实现的 Go API。
+
+
+## Go 后端测试
+
+`go test ./...` 跑认证与知乎协议测试；业务测试需要 `TEST_MYSQL_DSN`。推荐运行 `python3 scripts/test_backend.py`，它建立独立测试库并运行 `go test -race -count=1 ./...`。
+
+覆盖：多人接收和会话隔离、并发 3 个主动瓶子及第 4 个拒绝、幂等首封回信、内容审核拒绝/修改/旧版本隔离、聊天同意、关闭与切片、邀请过期、暂停与重试、柜子游标分页、屏蔽/举报、搜索缓存与共享额度、后台最终失败。协议测试使用 HTTP 模拟服务器，不消耗真实知乎接口额度。
+
+`internal/httpapi/routes_test.go` 锁定对外路由清单，防止文档中的入口在重构时遗失。业务集成测试从 HTTP 入口调用，覆盖 handler 校验、service 状态、MySQL 事务、outbox 处理、通知可见性和最终响应。

@@ -1,6 +1,36 @@
-// Worker 进程入口（注释骨架，尚无 main 函数）。
-// 与 API 共用配置、MySQL 和业务 service。
-// 启动后执行恢复扫描，再认领 outbox 任务，处理匹配、邀请过期、
-// 活动画像、经历建议、经验切片和通知。
-// 收到退出信号后停止认领，限时等待当前任务；未完成任务由租约恢复。
 package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"driftbottle/internal/app"
+	"driftbottle/internal/domain"
+	"driftbottle/internal/jobs"
+)
+
+func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	_, s, crypt, err := app.Open(ctx)
+	if err != nil {
+		var e *domain.Error
+		if errors.As(err, &e) {
+			slog.Error("startup failed", "code", e.Code, "message", e.Message)
+		} else {
+			slog.Error("startup failed; check configuration and database")
+		}
+		os.Exit(1)
+	}
+	defer s.Store.DB.Close()
+	w := jobs.Worker{Service: s, Cipher: crypt}
+	if err = w.Run(ctx); err != nil {
+		slog.Error("worker stopped unexpectedly")
+		os.Exit(1)
+	}
+}

@@ -1,0 +1,39 @@
+# Combine with compose.yaml after applying migrations:
+# docker compose -f compose.yaml -f compose.app.yaml --profile app up -d --build
+services:
+  api:
+    profiles: [app]
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment: &app_environment
+      APP_ENV: ${APP_ENV:-production}
+      HTTP_ADDR: 0.0.0.0:8080
+      MYSQL_DSN: 'drift_app:${MYSQL_PASSWORD}@tcp(mysql:3306)/drift_bottle?parseTime=true&loc=UTC'
+      AUTH_SIGNING_KEY: ${AUTH_SIGNING_KEY:?Set AUTH_SIGNING_KEY}
+      AUTH_ISSUER: ${AUTH_ISSUER:-drift-bottle}
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-drift-bottle-web}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      ZHIHU_ACCESS_SECRET: ${ZHIHU_ACCESS_SECRET:-}
+      ZHIHU_OAUTH_APP_ID: ${ZHIHU_OAUTH_APP_ID:-}
+      ZHIHU_OAUTH_APP_KEY: ${ZHIHU_OAUTH_APP_KEY:-}
+      ZHIHU_OAUTH_REDIRECT_URI: ${ZHIHU_OAUTH_REDIRECT_URI:-}
+      ZHIHU_TOKEN_ENCRYPTION_KEY: ${ZHIHU_TOKEN_ENCRYPTION_KEY:-}
+      ZHIHU_SEARCH_DAILY_BUDGET: ${ZHIHU_SEARCH_DAILY_BUDGET:-500}
+      ACTIVE_BOTTLE_LIMIT: ${ACTIVE_BOTTLE_LIMIT:-3}
+    ports:
+      - '127.0.0.1:${API_PORT:-8080}:8080'
+  worker:
+    profiles: [app]
+    build: .
+    entrypoint: [/worker]
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment: *app_environment

@@ -8,11 +8,12 @@
 - `docs/PRD.md`：按用户 31 节原稿整理的完整产品范围。
 - `docs/API.md`：根据 PRD 和已确认前端流程整理的前后端接口契约。
 - `docs/BACKEND-CONSTRAINTS.md`：Gin + MySQL 后端的技术选型、分层、数据、状态、事务、异步任务与测试约束。
+- `docs/DEPLOYMENT.md`：Vercel + Railway 部署、环境变量、migration 与知乎 OAuth 回调说明。
 - `docs/VISUAL-EXPERIMENT-01.md`：本次可修改的视觉实验推导。
 
 ## 查看网页与手机原型
 
-后端注释骨架位于 `backend/`，首版技术栈已确定为 Gin + MySQL。暂不引入 Redis、独立消息队列和微服务；必须异步执行的少量任务使用 MySQL 任务表持久化，不增加新的基础设施。模块职责及文档待同步事项见 [backend/README.md](backend/README.md)。数据库已补齐 Docker 启动、SQL 迁移与测试，见 [数据库接入说明](backend/database/README.md)；HTTP 业务服务仍待实现。
+后端实现位于 `backend/`，使用 Gin + MySQL，包含 API、异步 worker、知乎 HTTP 接入及真实数据库测试。安装、运行、构建、测试与容器配置见 [backend/README.md](backend/README.md)。现有前端演示尚未切换到这些真实接口。公网上线步骤见 [部署说明](docs/DEPLOYMENT.md)。
 
 当前三维海岛前端位于 `frontend/`，视觉基准为 `海岛漂流瓶-设计展示-03.png`。它使用 Three.js 实现海面、小岛、房屋、漂流瓶、瓶子柜和经历日记，提供桌面与手机交互。安装、运行、构建和测试命令见 `frontend/README.md`。
 

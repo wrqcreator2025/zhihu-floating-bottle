@@ -1,4 +1,5 @@
 """Real MySQL constraint tests; fixtures always roll back (requires migrated DB)."""
+import os
 import subprocess
 import unittest
 from pathlib import Path
@@ -7,14 +8,16 @@ BACKEND = Path(__file__).resolve().parents[1]
 CLIENT = [
     "docker", "compose", "exec", "-T", "mysql", "sh", "-c",
     'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --default-character-set=utf8mb4 '
-    '--batch --skip-column-names -u "$MYSQL_USER" "$MYSQL_DATABASE"',
+    '--batch --skip-column-names -u "$MYSQL_USER" "${1:-$MYSQL_DATABASE}"',
+    'sh', os.environ.get('TEST_DATABASE', ''),
 ]
 FIXTURE = """
 START TRANSACTION;
 INSERT INTO users(id) VALUES ('TEST_DB_OWNER'), ('TEST_DB_READER_A'), ('TEST_DB_READER_B');
 INSERT INTO bottles(id,owner_id,episode_raw) VALUES
  ('TEST_DB_BOTTLE_A','TEST_DB_OWNER','你好 🌊'),
- ('TEST_DB_BOTTLE_B','TEST_DB_OWNER','第二个瓶子');
+ ('TEST_DB_BOTTLE_B','TEST_DB_OWNER','第二个瓶子'),
+ ('TEST_DB_BOTTLE_C','TEST_DB_OWNER','第三个瓶子');
 INSERT INTO experiences(id,owner_id,title,body,disclosure,confirmed_by_user,receive_open)
  VALUES ('TEST_DB_EXP','TEST_DB_READER_A','经历','本人确认',JSON_OBJECT(),1,1);
 INSERT INTO match_invitations
@@ -45,9 +48,16 @@ class DatabaseTests(unittest.TestCase):
                                   "SELECT episode_raw FROM bottles WHERE id='TEST_DB_BOTTLE_A';"),
                          '2\n你好 🌊')
 
-    def test_one_active_bottle_per_owner(self):
+    def test_owner_can_have_three_active_bottles(self):
+        self.assertEqual(self.sql(
+            "INSERT INTO active_search_slots VALUES ('TEST_DB_OWNER','TEST_DB_BOTTLE_A',NOW());"
+            "INSERT INTO active_search_slots VALUES ('TEST_DB_OWNER','TEST_DB_BOTTLE_B',NOW());"
+            "INSERT INTO active_search_slots VALUES ('TEST_DB_OWNER','TEST_DB_BOTTLE_C',NOW());"
+            "SELECT COUNT(*) FROM active_search_slots WHERE user_id='TEST_DB_OWNER';"), "3")
+
+    def test_same_bottle_cannot_occupy_two_slots(self):
         self.sql("INSERT INTO active_search_slots VALUES ('TEST_DB_OWNER','TEST_DB_BOTTLE_A',NOW());"
-                 "INSERT INTO active_search_slots VALUES ('TEST_DB_OWNER','TEST_DB_BOTTLE_B',NOW());", 1062)
+                 "INSERT INTO active_search_slots VALUES ('TEST_DB_OWNER','TEST_DB_BOTTLE_A',NOW());", 1062)
 
     def test_slot_cannot_claim_another_users_bottle(self):
         self.sql("INSERT INTO active_search_slots VALUES ('TEST_DB_READER_A','TEST_DB_BOTTLE_A',NOW());", 1452)

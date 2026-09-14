@@ -3,6 +3,8 @@ import './style.css';
 import { createWorld } from './scene.js';
 import { createStore, SAMPLE } from './store.js';
 
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+
 const $ = (s) => document.querySelector(s);
 const escape = (v = '') =>
   String(v).replace(
@@ -108,6 +110,7 @@ function renderNavigation() {
       .join('')}</h1><p>${c[2]}</p>`;
   const links = {
     home:
+      btn('zhihu-login', '使用知乎账号登录 ' + iconArrow, 'primary') +
       btn('island', '靠近小岛 ' + iconArrow) +
       btn('receive', '接收一个瓶子 ' + iconArrow) +
       btn('write', '抛出一个瓶子 ' + iconArrow),
@@ -420,6 +423,9 @@ function action(a) {
     return;
   }
   switch (a) {
+	case 'zhihu-login':
+	  window.location.assign(`${API_BASE}/api/v1/auth/zhihu`);
+	  break;
     case 'picked':
       if (view !== 'bottle') return;
       pickingUp = false;

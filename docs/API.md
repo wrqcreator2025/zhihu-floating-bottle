@@ -1,20 +1,20 @@
 # 《漂流瓶》接口文档 v0.1
 
-> 状态：前后端联调草案  
+> 状态：已实现后端契约；匿名聊天、审核与知乎接入以第 18 节为准（替代早期一次追问及宿主自动登录假设）  
 > 依据：`docs/PRD.md`、`PRODUCT_CONSTRAINTS.md` 与已确认的海岛漂流瓶前端流程。  
 > 范围：定义业务 API 和联调契约，不规定后端语言、框架或数据库。
 
 ## 1. 设计原则
 
 1. API 使用 JSON over HTTPS，前缀统一为 `/api/v1`。
-2. 前端可以连续新建多个瓶子，每个瓶子独立保存；同一用户同时只有一个瓶子可主动寻找过来人。
+2. 前端可以连续新建多个瓶子，每个瓶子独立保存；同一用户默认可有 3 个瓶子同时主动寻找过来人。
 3. 「我走过的经历」是长期个人资料，与某个瓶子、邀请或对话的生命周期分离。
 4. 「接收瓶子」是查看一条精准邀请；「瓶子柜」只保存已发出和已接住的记录，不代替接收动作。
 5. 接收者放行后，当前邀请结束，原瓶子继续寻找下一位符合条件且开放接收的用户。
 6. AI 根据发送者的问题和可用的知乎活动信息推测其需要哪类经历，再结合接收者本人填写的经历与其知乎活动信息完成匹配。AI 不代替真人回信，不自动确认用户经历。
 7. 请求只做必要校验：登录态、资源归属、必填字段、类型/枚举、合理长度和当前状态。不在 Controller、Service 和 DAO 重复做同一组校验。
 
-同一个瓶子允许同时投递给多位符合条件的人，分别接住并回信。每人对应独立 Invitation 和 Connection；一个人接住、放行或结束对话，不影响其他人。唯一主动寻找名额限制的是瓶子数量，不是接收人数。
+同一个瓶子允许同时投递给多位符合条件的人，分别接住并回信。每人对应独立 Invitation 和 Connection；一个人接住、放行或结束对话，不影响其他人。同时寻找瓶子上限与单瓶接收人数分开计算。
 
 ## 2. 通用约定
 
@@ -25,7 +25,7 @@ Authorization: Bearer <access_token>
 Content-Type: application/json
 ```
 
-Token 由登录或知乎宿主环境提供。业务接口不接收客户端传入的 `userId`，用户身份从 Token 取得。
+插件使用知乎 OAuth 登录。回调将知乎稳定主体映射为本应用内部 `users.id`，并设置 HttpOnly 会话 Cookie；业务接口不接收客户端传入的 `userId`。开发和可信宿主仍可使用 Bearer Token。
 
 ### 2.2 时间、ID 与分页
 
@@ -60,10 +60,11 @@ Token 由登录或知乎宿主环境提供。业务接口不接收客户端传�
 ```json
 {
   "error": {
-    "code": "ACTIVE_BOTTLE_EXISTS",
-    "message": "已有一个瓶子正在寻找过来人",
+    "code": "ACTIVE_BOTTLE_LIMIT_REACHED",
+    "message": "同时寻找的瓶子已达到上限",
     "details": {
-      "activeBottleId": "btl_01J..."
+      "limit": 3,
+      "activeBottleIds": ["btl_01J...", "btl_01K...", "btl_01M..."]
     }
   }
 }
@@ -115,7 +116,7 @@ Token 由登录或知乎宿主环境提供。业务接口不接收客户端传�
 `status` 取值：
 
 - `draft`：未抛出，可编辑。
-- `searching`：正在匹配，占用唯一主动寻找名额。
+- `searching`：正在匹配，占用当前用户的一个并行寻找名额。
 - `paused`：暂停新增投递；已送达邀请和已建立连接仍可处理。
 - `completed`：投递已结束、无待处理邀请，且至少一人曾接住。
 - `match_failed`：投递已结束、无待处理邀请，且无人接住。
@@ -170,13 +171,12 @@ Token 由登录或知乎宿主环境提供。业务接口不接收客户端传�
   "bottleId": "btl_01J...",
   "invitationId": "inv_01J...",
   "status": "awaiting_first_reply",
-  "followUpUsed": false,
-  "messages": [],
+    "messages": [],
   "createdAt": "2026-09-09T04:40:00Z"
 }
 ```
 
-`status` 取值：`awaiting_first_reply | awaiting_follow_up | awaiting_second_reply | closed`。
+`status` 取值：`awaiting_first_reply | replied | closed`。匿名聊天邀请和会话状态独立查询，详见第 8、18 节。
 
 同一瓶子可有多个 Connection，每个接收者至多一个。一次追问额度、反馈、未读及封存均按 Connection 独立计算。发送者能查看自己的全部连接，接收者只能查看自己参与的连接，不能查看其他接收者及其回信。
 
@@ -191,7 +191,8 @@ Token 由登录或知乎宿主环境提供。业务接口不接收客户端传�
 ```json
 {
   "data": {
-    "activeBottle": null,
+    "activeBottles": [],
+    "activeBottleLimit": 3,
     "pendingInvitationCount": 1,
     "unreadReplyCount": 0,
     "cabinet": {
@@ -254,7 +255,7 @@ Token 由登录或知乎宿主环境提供。业务接口不接收客户端传�
 }
 ```
 
-若已有其他主动寻找中的瓶子，返回 `409 ACTIVE_BOTTLE_EXISTS`。草稿仍保留，不自动删除或覆盖。因网络重试而对已经 searching 的同一瓶重复调用时，返回当前成功结果，不重复创建匹配任务。
+若已有 3 个瓶子在寻找（或已配置的更高上限），返回 `409 ACTIVE_BOTTLE_LIMIT_REACHED`，details 包含 `limit` 和 `activeBottleIds`。草稿仍保留。对已经 searching 的同一瓶重复调用时，返回当前成功结果，不重复创建匹配任务。
 
 ### `POST /api/v1/bottles/{bottleId}/pause`
 
@@ -262,7 +263,7 @@ Token 由登录或知乎宿主环境提供。业务接口不接收客户端传�
 
 ### `POST /api/v1/bottles/{bottleId}/resume`
 
-仅将 `paused` 恢复为 `searching`，保留已尝试人数和接收者记录，不重新投递给同一人。若名额被另一个瓶子占用，返回 `409 ACTIVE_BOTTLE_EXISTS`。返回 `200` 和更新后的 Bottle；因网络重试而对已 searching 的同一瓶重复调用时返回当前结果，不重复创建任务。
+仅将 `paused` 恢复为 `searching`，保留已尝试人数和接收者记录，不重新投递给同一人。若同时寻找数已达上限，返回 `409 ACTIVE_BOTTLE_LIMIT_REACHED`。返回 `200` 和更新后的 Bottle；因网络重试而对已 searching 的同一瓶重复调用时返回当前结果，不重复创建任务。
 
 ### `POST /api/v1/bottles/{bottleId}/retry`
 
@@ -277,7 +278,7 @@ Token 由登录或知乎宿主环境提供。业务接口不接收客户端传�
 }
 ```
 
-成功后 `searchRound` 加一、当前轮 `attemptedCount` 归零，瓶子进入 `searching` 并重新占用主动名额。历史邀请和连接保留，不再次投递给相同用户。若另一瓶正在寻找，返回 `409 ACTIVE_BOTTLE_EXISTS`；状态不允许时返回 `409 INVALID_BOTTLE_STATE`。
+成功后 `searchRound` 加一、当前轮 `attemptedCount` 归零，瓶子进入 `searching` 并重新占用一个寻找名额。历史邀请和连接保留，不再次投递给相同用户。若同时寻找数已达上限，返回 `409 ACTIVE_BOTTLE_LIMIT_REACHED`；状态不允许时返回 `409 INVALID_BOTTLE_STATE`。
 
 retry 成功后对已进入 searching 的同一瓶重复调用，返回当前结果，不再次增加 `searchRound` 或创建任务。
 
@@ -418,71 +419,46 @@ retry 成功后对已进入 searching 的同一瓶重复调用，返回当前结
 
 决策操作按邀请幂等：重复提交相同 decision 返回当前结果；提交不同 decision 返回 `409 INVITATION_ALREADY_DECIDED`。是否过期与状态转换由同一个条件更新决定，不先查询再更新。
 
-## 8. 回信、追问与封存
+## 8. 回信、匿名聊天与封存
 
 ### `GET /api/v1/connections/{connectionId}`
 
-返回本次连接、双方允许披露的相关经历和消息。不返回姓名、头像、学校、公司、粉丝数或知乎主页。
+仅当前连接双方可读，返回原信、允许披露的经历快照、最新 50 条可见消息和连接状态。更早消息通过 `GET /connections/{connectionId}/messages?cursor=...&limit=20` 分页获取。消息按 ID 倒序排列，只有已送达消息及当前用户自己的待审/拒绝消息可见。
 
 ### `POST /api/v1/connections/{connectionId}/messages`
 
-发送首封回信、唯一一次追问或追问回应。消息角色和当前状态由服务端判定，前端不传 `senderId`或自行指定消息类型。
+接收者发送首封回信，JSON 为 `{ "body": "我当时的经历……" }`，最多 8000 字符。支持 `Idempotency-Key`（最多 128 个可打印 ASCII 字符）；同键同正文返回原消息，同键不同正文返回 `409 IDEMPOTENCY_CONFLICT`。
 
-```json
-{
-  "body": "当时我也很怕投递。后来我先整理了两个小项目……"
-}
-```
+返回 `202`：
 
 ```json
 {
   "data": {
     "message": {
       "id": "msg_01J...",
-      "body": "当时我也很怕投递……",
-      "createdAt": "2026-09-09T05:00:00Z"
+      "body": "我当时的经历……",
+      "deliveryStatus": "pending_moderation"
     },
-    "connectionStatus": "awaiting_follow_up",
-    "interaction": "return_to_sea"
+    "interaction": "await_moderation"
   }
 }
 ```
 
-首封回信发送成功后，接收者看到装瓶并抛回海面的动画；发送者的瓶子柜产生未读回信。
+消息落库后异步审核；通过才变为 `delivered`、连接变为 `replied`、通知对方。前端轮询消息确认 `delivered` 后播放 `return_to_sea` 动画，不在收到 `202` 时宣称已经送达。拒绝为 `rejected`，后台审核最终失败为 `moderation_failed`；原稿仍对作者可见。修改、重试、复核接口见第 18 节。
+
+### 匿名聊天
+
+原瓶发信者收到已送达的首封回信后调用 `POST /connections/{connectionId}/chat-invitations`；接收者通过 `POST /chat-invitations/{id}/decision` 提交 `{ "decision": "accept" }` 或 `decline`。本人不能替对方接受。仅接受后允许双方调用 `POST /connections/{connectionId}/chat/messages`，同样使用异步审核与幂等键。
+
+`GET /connections/{connectionId}/chat` 返回 `{ "invitation": null或对象, "session": null或对象 }`。拒绝不会损坏原信与回信，不开放新的陌生人私信入口。
 
 ### `POST /api/v1/connections/{connectionId}/close`
 
-任一方主动结束当前连接，或在该连接的一次追问往返完成后封存。其他接收者的连接及瓶子寻找状态不受影响。不创建好友关系，不开启无限私聊。
-
-成功返回：
-
-```json
-{
-  "data": {
-    "connectionId": "con_01J...",
-    "status": "closed",
-    "closedAt": "2026-09-09T06:00:00Z"
-  }
-}
-```
-
-重复关闭返回相同结果；已关闭连接继续发送消息返回 `409 CONNECTION_CLOSED`。
+任一方关闭当前连接与聊天会话，重复关闭返回相同结果。其他接收者的连接及瓶子寻找不受影响。已关闭后继续发送返回 `409 CONNECTION_CLOSED`。
 
 ### `POST /api/v1/connections/{connectionId}/feedback`
 
-```json
-{
-  "result": "felt_understood"
-}
-```
-
-`result` 取值：
-
-- `felt_understood`：TA 确实接住了我。
-- `similar_but_missed`：经历相似，但没有真正回应到处境。
-- `wrong_experience`：TA 不是我想找的过来人。
-
-反馈仅允许发送者在收到首封回信后提交，每个 Connection 一次。成功返回 `200` 和 `{ "data": { "connectionId": "con_01J...", "result": "felt_understood" } }`；重复提交相同结果返回当前记录，修改结果返回 `409 FEEDBACK_ALREADY_SUBMITTED`。
+仅原瓶发送者收到已送达的首封回信后可提交 `{ "result": "felt_understood" }`。枚举仍为 `felt_understood | similar_but_missed | wrong_experience`。每段连接一次；相同反馈幂等，不同反馈返回 `409 FEEDBACK_ALREADY_SUBMITTED`。
 
 ## 9. 瓶子柜
 
@@ -739,44 +715,25 @@ WebSocket/SSE 是后续可选优化。首版在页面活跃时每 20 秒轮询�
 
 ## 14. 知乎开放接口选型
 
-本项目只接入与“按真实经历连接人”直接相关的能力。官方接口的实际路径、鉴权参数和返回字段以接入时提供的规范为准，本 API 不透传官方原始响应。
+上游事实源为仓库 `zhihu/references/hackathon-oauth.md`、`user-api.md` 和 `http-api.md`。接入以下能力：
 
-| 知乎能力 | 是否调用 | 本项目用途 |
-| --- | --- | --- |
-| v3 知乎关注流 | 接入 | 获取当前用户的关注关系与关注内容流，形成兴趣、阶段和关注方向的辅助画像；不把关注数量当作匹配权重 |
-| v4 知乎搜索 | 接入 | 提取参与者公开创作中的经历语义，辅助推测发送者需要的经历并对已开放接收的候选人排序；也用于经历建议和经验切片关联 |
-| v1 知乎热榜 | 不调用 | 实时热点与经历匹配主流程无关，且每日 100 次额度不值得消耗 |
-| v2 知乎故事 | 不调用 | 虚构故事和改编能力不用于真实经历匹配 |
-| v5 全网搜索 | 不调用 | 第一阶段只需要知乎公开内容，不扩大全网画像和检索范围 |
-| v6 知乎知识 | 不调用 | 当前没有与核心流程直接对应的知识展示或讨论模块 |
-| v7 直答 Agent | 不调用 | 产品依赖真人回信，也不提供普通知识问答；不得用直答结果冒充过来人 |
+| 能力 | 用途及边界 |
+| --- | --- |
+| OAuth authorize/access_token | 给已登录的本地用户连接知乎数据授权；不以昵称构造稳定登录身份 |
+| `/api/v1/user/contents` | 已授权用户本人创作摘要，辅助活动主题提取 |
+| `/api/v1/user/followees` | 已授权用户关注简介，辅助主题；不抓取关注内容流 |
+| `/api/v1/content/zhihu_search` | 目标建议的公开语义背景；不能按昵称归属个人经历 |
+| `/api/v1/quota` | 运维按需查询账号额度，不在每次业务请求前查询 |
 
-匹配时，发送者的问题和活动画像用于形成目标经历；接收者本人已确认且打开接收的 Experience 决定其是否进入候选池，接收者活动画像用于补充语义和排序。活动信息不能单独证明某人经历过某事，也不能绕过 `receiveOpen=false`。任何一方的关注列表、关注流原文、搜索记录和原始活动内容都不向另一方返回。
-
-v3 当前只使用官方明确提供的关注列表、关注关系和关注内容流；v4 当前只使用官方返回的公开文章与问答信息。没有明确开放的浏览历史、点赞历史、收藏或私密行为不纳入设计。
+不接入热榜、虚构故事、全网搜索、知识库或知乎直答。AI 整理、审核和语义匹配使用单独配置的模型服务，不代替真人回信。
 
 ### `GET /api/v1/integrations/zhihu/status`
 
-返回当前用户的知乎活动能力、画像新鲜度，以及本应用记录的搜索调用量：
+返回 `status`、`activityProfileAvailable`、`activityStatus`、`activitySources`、`lastActivitySyncAt`、`followFeedAvailable`、`searchAvailable`、`effectiveDailyLimit`、`usedToday`、`resetsAt`。活动来源仅为 `public_content/followees`，`followFeedAvailable=false`。
 
-```json
-{
-  "data": {
-    "activityProfileAvailable": true,
-    "activitySources": ["follow_feed", "public_content"],
-    "lastActivitySyncAt": "2026-09-09T03:00:00Z",
-    "followFeedAvailable": true,
-    "searchAvailable": true,
-    "effectiveDailyLimit": 5000,
-    "usedToday": 12,
-    "resetsAt": "2026-09-10T00:00:00+08:00"
-  }
-}
-```
+`usedToday` 和 `effectiveDailyLimit` 表示当前应用共享 Access Secret 的搜索预算（配置 1–5000，默认 500），不是每个本地用户各享一份。缓存命中不计数，预算按上海自然日重置。上游官方剩余额度可能低于本应用记录，以上游限流响应为准。
 
-`effectiveDailyLimit` 是知乎搜索官方 5000 次上限和应用配置预算中的较小值。缓存命中不计入 `usedToday`。达到上限时使用已有活动画像；没有画像时退化为“发送者问题 + 接收者已确认经历”完成匹配。知乎接口不可用不阻塞瓶子创建、匹配、接收和真人回信。
-
-用户给出的能力描述没有包含独立 OAuth 接口，因此不在本版虚构 `/authorize` 或撤销授权接口。登录和调用凭据由知乎宿主环境提供；若后续获得正式授权协议，再补充相应契约。
+授权路径见第 18 节。接口不可用或活动刷新失败时保留旧主题；没有主题时仍能根据用户问题、确认目标和本人经历匹配。该降级不绕过内容审核。
 
 ## 15. 最小校验规则
 
@@ -816,3 +773,48 @@ launch 前必须已有用户确认的 `requiredExperiences`；该条件来自 AI
 | 这次不聊 / 没演过 | `POST /invitations/{id}/decision` | 原信装回瓶中并抛回海面，不进柜子 |
 | 打开瓶子柜 | `GET /cabinet` | 只展示已发出和已接住记录 |
 | 修改我的经历 | `PATCH /experiences/{id}` | 日记页显示已保存，不改变瓶子数据 |
+
+## 18. 后端实现补充（2026-09-14）
+
+本节与第 8、14 节按最新确认需求更新，优先于历史描述中的“一次追问”“关注内容流”和“暂无 OAuth”假设。核心数据库结构沿用原迁移；没有把演示账号或模型 mock 加入生产入口。
+
+### 补充路由
+
+下表均以 `/api/v1` 为前缀，除 OAuth callback 外均需要本应用 Bearer Token。
+
+| 方法与路径 | 请求 / 行为 |
+| --- | --- |
+| `GET /connections/{id}/messages` | `cursor`、`limit`；倒序分页；返回 `data` 和 `nextCursor` |
+| `PATCH /messages/{id}` | `{body}`；仅作者修改 rejected/moderation_failed 消息，递增版本并重新审核，202 |
+| `POST /messages/{id}/retry` | 无正文；仅作者重试未送达的失败消息，202 |
+| `POST /messages/{id}/appeal` | `{reason}`；最多 2000 字符，保存复核说明并重新审核，202 |
+| `POST /bottles/{id}/appeal` | `{reason}`；仅所有者对被拒绝的 draft 申请复核并重新抛出，仍遵守唯一名额 |
+| `POST /connections/{id}/chat-invitations` | 原发送者在收到首封回信后邀请；返回 `{id,status}` |
+| `GET /connections/{id}/chat` | 当前连接的邀请和会话状态 |
+| `POST /chat-invitations/{id}/decision` | `{decision: "accept"或"decline"}`；仅原回应者可决策 |
+| `POST /connections/{id}/chat/messages` | `{body}`；双方接受后可发送，202；支持 Idempotency-Key |
+| `POST /connections/{id}/reports` | `{reason,messageId?}`；仅参与者举报，201；选填消息必须是本连接已送达消息 |
+| `POST /connections/{id}/block` | 屏蔽当前对话的另一方，阻止后续匹配与消息送达，已有记录保留 |
+| `POST /integrations/zhihu/authorize` | 返回 `{authorizationUrl}`；浏览器保存 HttpOnly Cookie 后跳转 |
+| `GET /integrations/zhihu/callback` | `state` 与同浏览器 Cookie 绑定，读取 authorization_code（兼容 code），后端换 Token |
+| `DELETE /integrations/zhihu` | 清除当前用户的本地授权 Token 和活动主题，204；不假称调用上游撤销 |
+
+### 审核、版本与状态
+
+抛瓶成功仍返回 `searching`；worker 先审核最终版本，审核通过后才能投递。被拒绝则回到 `draft`，`failureReason=content_rejected`，释放寻找名额并通知所有者。用户可修改后重抛或申请复核。审核服务故障最多重试 5 次，最终 `search_error`；不会产生伪造回信。
+
+消息状态为 `pending_moderation | delivered | rejected | moderation_failed`。已送达正文不允许修改；不同内容版本的审核结果不能互用。首封回信与聊天消息均在送达后才产生对方通知。审核拦截辱骂、威胁、骚扰、诈骗、违法引导、隐私泄露，以及手机号、微信、QQ、邮箱、社交账号、二维码、外链等引导离开平台交流的内容。消息分页对象包含 `id/body/kind/deliveryStatus/contentVersion/senderRole/createdAt`。
+
+Connection 状态为 `awaiting_first_reply | replied | closed`；ChatInvitation 为 `pending | accepted | declined`；ChatSession 为 `active | closed`。不再限制为一次追问。`messages` 写入首封回信，`chat/messages` 写入接受后的聊天。
+
+新增通知类型为 `chat_invited | chat_decided | chat_message_received | content_rejected`；其他通知类型不变。通知按具体邀请、瓶子或连接隔离。
+
+### 接入与错误边界
+
+插件的生产登录入口为 `GET /auth/zhihu`；回调读取知乎稳定主体并创建或恢复内部用户。`GET /auth/session` 读取会话，`POST /auth/logout` 清除会话。本地开发可使用单独 CLI，不提供任意 userId 登录接口。回调若未返回 state，明确 `400 OAUTH_STATE_INVALID`。
+
+经历建议创建目前按上游能力边界返回 `503 ZHIHU_AUTHOR_FILTER_UNAVAILABLE`。AI 未配置或不可用返回 `503 AI_UNAVAILABLE`；读写草稿、已存在的记录与本人经历无需等待 AI。
+
+为了隐藏私人资源的存在，非所有者/非参与者查询返回 `404 NOT_FOUND`。请求正文超过 1 MiB 返回 `413 BODY_TOO_LARGE`；未知 JSON 字段或错误类型返回 `400 INVALID_REQUEST`。目标条件每类最多 20 条，每条最多 4000 字符；其余长度遵守第 15 节。
+
+现有前端仍是本地演示数据实现，接入时须按本节处理异步送达与匿名聊天，不得用演示动作替另一用户接受聊天。

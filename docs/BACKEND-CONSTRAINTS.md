@@ -4,17 +4,18 @@
 > 上游契约：`docs/API.md`  
 > 产品边界：`docs/PRD.md` 与 `PRODUCT_CONSTRAINTS.md`  
 > 知乎上游协议：`zhihu/references/hackathon-oauth.md`、`user-api.md` 与 `http-api.md`  
-> 用途：约束后端实现、数据库设计、测试和代码评审，不改写接口语义。
+> 用途：约束后端实现、数据库设计、测试和代码评审。
+> 2026-09-14 实现同步：匿名聊天、审核送达、共享额度与 OAuth 请求绑定以 `docs/API.md` 第 8、14、18 节及 `backend/README.md` 为准；下文早期一次追问和 Cookie 单独兜底的规则已被替代。
 
 ## 1. 实现目标
 
 1. 严格实现 `/api/v1` 契约，不让前端根据数据库表结构猜测业务状态。
-2. 保证瓶子可重复创建且独立保存，但同一用户同时只有一个主动寻找中的瓶子。
+2. 保证瓶子可重复创建且独立保存；同一用户默认最多 3 个瓶子同时寻找，配置可提高但不可低于 3。
 3. 将瓶子、邀请、短连接和长期经历分开建模，禁止用一张大表承载所有状态。
 4. 支持异步匹配与通知，不把「抛出瓶子」伪装成同步实时找人。
 5. 保持代码和依赖简单，不为黑客松 MVP 引入 Redis、独立消息队列、微服务、分布式事务或复杂规则引擎。
 
-同一瓶子可同时被多人接住并分别回信。Bottle 与 Invitation、Connection 均为一对多；唯一主动寻找名额只限制瓶子数量。
+同一瓶子可同时被多人接住并分别回信。Bottle 与 Invitation、Connection 均为一对多；同时寻找的瓶子数量与单瓶接收人数是独立限制。
 
 ## 2. 固定技术选择
 
@@ -98,7 +99,7 @@ backend/
 | 位置 | 校验范围 |
 | --- | --- |
 | HTTP 边界 | JSON 可解析、必填、字段类型、枚举、`docs/API.md` 中的长度上限 |
-| Service | 资源归属、当前状态是否允许此次转换、唯一主动寻找名额 |
+| Service | 资源归属、当前状态是否允许此次转换、并行寻找数量上限 |
 | MySQL | `NOT NULL`、主键、外键、必要唯一索引和事务一致性 |
 | 内容理解层 | 是否属于经历问题、高风险分流、经历/观点条件拆分 |
 
@@ -119,7 +120,7 @@ backend/
 | `users` | 本地用户主体 | `id`, `external_subject`, `created_at`, `updated_at` |
 | `zhihu_integrations` | 用户的知乎授权与同步状态 | `user_id` PK, `oauth_token_ciphertext`, `oauth_expires_at`, `status`, `last_synced_at`, timestamps |
 | `bottles` | 发送者的求助瓶子 | `id`, `owner_id`, `episode_raw`, `episode_title`, `episode_confirmed`, `target_hint`, `target_rules`, `content_version`, `search_round`, `status`, `failure_reason`, `launched_at`, timestamps |
-| `active_search_slots` | 单用户唯一主动寻找名额 | `user_id` PK, `bottle_id` UNIQUE, `created_at` |
+| `active_search_slots` | 用户当前同时寻找的瓶子 | `(user_id, bottle_id)` PK, `bottle_id` UNIQUE, `created_at` |
 | `experiences` | 长期「我走过的经历」 | `id`, `owner_id`, `title`, `body`, `confirmed_by_user`, `receive_open`, `disclosure`, `source`, timestamps |
 | `match_invitations` | 一次瓶子投递给一位接收者 | `id`, `bottle_id`, `search_round`, `recipient_id`, `matched_experience_id`, `experience_snapshot`, `reason`, `status`, `expires_at`, `decided_at`, timestamps |
 | `connections` | 接住后建立的有限对话 | `id`, `bottle_id`, `invitation_id`, `seeker_id`, `responder_id`, `status`, `follow_up_used`, `closed_at`, timestamps |
@@ -240,7 +241,7 @@ awaiting_first_reply → awaiting_follow_up → awaiting_second_reply → closed
 3. 写入 `outbox_jobs(type='match_bottle')`。
 4. 提交。
 
-插入名额的唯一键冲突时只在冲突分支读取现有名额：若指向同一 searching 瓶子，视为重复请求并返回当前成功结果；若指向其他瓶子，转换为 `409 ACTIVE_BOTTLE_EXISTS`。不在正常路径先查询再插入。
+抢占名额时先锁定当前 `users` 行，在同一事务中统计该用户的 `active_search_slots`。达到 `ACTIVE_BOTTLE_LIMIT`（默认 3，可调高至 20）时返回 `409 ACTIVE_BOTTLE_LIMIT_REACHED`。用户行锁将不同瓶子的并发 launch 串行化，避免计数后同时越界。
 
 ### 8.2 接住邀请
 
@@ -262,7 +263,7 @@ awaiting_first_reply → awaiting_follow_up → awaiting_second_reply → closed
 ### 8.4 失败后重试
 
 1. 条件更新并锁定 `match_failed/search_error` 的瓶子。
-2. 插入 `active_search_slots`；唯一键冲突映射为 `409 ACTIVE_BOTTLE_EXISTS`。
+2. 锁定用户行、检查并行名额后插入 `active_search_slots`；达上限映射为 `409 ACTIVE_BOTTLE_LIMIT_REACHED`。
 3. 如请求包含新目标则更新目标，递增 `content_version`；始终递增 `search_round` 并清空 `failure_reason`。
 4. 将瓶子更新为 `searching`，写入新的 `match_bottle` outbox 任务并提交。
 
@@ -378,7 +379,7 @@ v1 热榜、v2 故事、v5 全网搜索、v6 知乎知识和 v7 直答 Agent 不
 黑客松项目使用 Authorization Code Flow：
 
 1. 将用户重定向到 `GET https://openapi.zhihu.com/authorize`，Query 固定包含 URL 编码后的 `redirect_uri`、`app_id` 和 `response_type=code`。服务端创建短时、一次性的 OAuth 事务并绑定当前本地会话；可以同时发送随机 `state`。
-2. 回调优先读取 `authorization_code`，可兼容读取 `code`；缺少授权码或本地 OAuth 事务已失效时结束授权。若知乎回传 `state`，必须与事务中的值一致；当前资料未承诺一定回传 `state`，未回传时依靠同站会话 Cookie 和一次性事务完成绑定，不自行假定协议字段。
+2. 回调优先读取 `authorization_code`，可兼容读取 `code`；缺少授权码或本地 OAuth 事务已失效时结束授权。回调必须回传与事务一致的随机 `state`，并校验同浏览器 Cookie；资料未承诺 state 一定回传，缺失时明确失败并待平台确认，不能仅靠 Cookie 接受任意授权码。
 3. 后端向 `POST https://openapi.zhihu.com/access_token` 发送 `application/x-www-form-urlencoded`：`app_id`、`app_key`、固定的 `grant_type=authorization_code`、与登记值完全一致的 `redirect_uri`，以及 `code=<authorization_code>`。
 4. Token 交换以响应存在非空 `access_token` 为成功依据，同时保存 `expires_in` 对应的过期时间；不能仅因响应中的业务 `code` 不是 `0` 就判定失败。
 5. OAuth Token 只绑定发起授权的当前本地用户。若官方响应没有文档化的稳定知乎主体 ID，不用昵称、头像或关注信息构造 `external_subject`，也不把该授权流程冒充为可靠的知乎账号登录。
@@ -573,7 +574,7 @@ LOG_LEVEL
 根据 `docs/API.md` 至少覆盖：
 
 1. 新建多个独立草稿。
-2. 抛出一个瓶子并拒绝第二个并行主动寻找。
+2. 并发抛出 4 个瓶子，确认前 3 个可同时寻找，第 4 个返回上限冲突。
 3. 接收邀请 → 接住 → 回信 → 柜子可见。
 4. 接收邀请 → 这次不聊/没演过 → 原瓶继续匹配且柜子不可见。
 5. 经历新建、编辑和关闭接收。
@@ -639,7 +640,7 @@ CI 最少执行：
 ## 22. 实现顺序
 
 1. 建立 Go 工程、MySQL migration、配置、健康检查和通用 JSON 错误。
-2. 实现长期经历 CRUD、瓶子草稿、抛出与唯一主动名额。
+2. 实现长期经历 CRUD、瓶子草稿、抛出与每人至少 3 个并行寻找名额。
 3. 实现 worker outbox、匹配邀请、接住/放行。
 4. 实现首封回信、瓶子柜和通知。
 5. 接入 AI 整理、目标经历拆分与内容分流。

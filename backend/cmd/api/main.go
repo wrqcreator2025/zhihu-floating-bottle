@@ -1,7 +1,51 @@
-// API 进程入口（注释骨架，尚无 main 函数）。
-// 启动顺序：加载配置 → 创建 slog 日志 → 建立 MySQL 连接池 →
-// 装配 repository、AI/知乎适配器与 service → 注册 Gin 路由 → 监听。
-// 所有依赖显式传入；不使用全局数据库或隐式 init 注册。
-// 配置服务器超时；收到退出信号后停止接收请求并关闭连接池。
-// migration 由部署步骤单独执行，启动时不自动建表。
 package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"driftbottle/internal/app"
+	"driftbottle/internal/auth"
+	"driftbottle/internal/domain"
+	"driftbottle/internal/httpapi"
+)
+
+func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	c, s, crypt, err := app.Open(ctx)
+	if err != nil {
+		var e *domain.Error
+		if errors.As(err, &e) {
+			slog.Error("startup failed", "code", e.Code, "message", e.Message)
+		} else {
+			slog.Error("startup failed; check configuration and database")
+		}
+		os.Exit(1)
+	}
+	defer s.Store.DB.Close()
+	if len(c.AuthKey) < 32 {
+		slog.Error("AUTH_SIGNING_KEY requires at least 32 bytes")
+		os.Exit(1)
+	}
+	router := httpapi.New(s, httpapi.Options{Auth: auth.Auth{Key: []byte(c.AuthKey), Issuer: c.Issuer, Audience: c.Audience}, Origin: c.Origin, Origins: c.Origins, Cipher: crypt, SecureCookies: c.Env == "production"})
+	server := &http.Server{Addr: c.Addr, Handler: router, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		server.Shutdown(shutdown)
+	}()
+	slog.Info("api listening", "address", c.Addr)
+	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("api stopped unexpectedly")
+		os.Exit(1)
+	}
+}

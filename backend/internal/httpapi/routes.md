@@ -1,6 +1,6 @@
 # 路由职责清单
 
-从 docs/API.md 摘录的现有契约，尚未注册或实现。HTTP 层仅解析、调用用例、映射响应。
+路由已注册和实现；最新版请求/响应见 docs/API.md 第 8、14、18 节。HTTP 层仅解析、调用用例、映射响应。
 
 - `GET /api/v1/home`
 - `POST /api/v1/bottles`
@@ -37,4 +37,4 @@
 
 归属：bottles → 瓶子用例；invitations → 接收与决策；connections → 回信与反馈；cabinet/home/notifications → 查询；experiences → 长期经历；ai → AI 整理或异步建议；slice-drafts → 切片；integrations → 授权及画像状态。
 
-待同步契约：匿名聊天邀请、接受/拒绝、会话消息分页与发送，以及本应用 OAuth 发起/回调入口。这里只预留职责，不把未经定义的路径当作既有 API。
+补充实现：连接消息分页、聊天邀请/决策/状态/发送、消息修改/重试/复核、瓶子复核、举报/屏蔽和知乎授权发起/回调/断开。详见 `routes.go` 与 `docs/API.md` 第 18 节。

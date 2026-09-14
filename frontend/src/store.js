@@ -1,3 +1,5 @@
+import { checkMessage } from './moderation.js';
+
 export const STORAGE_KEY = 'episode-island-v1';
 const blank = () => ({
   version: 1,
@@ -168,6 +170,8 @@ export function createStore(storage, onError = () => {}) {
     },
     chat(bottleId, text, contactId = null) {
       if (!text.trim()) throw Error('写一点想说的话再寄出。');
+	  const moderation = checkMessage(text);
+	  if (moderation.action !== 'allow') throw Error(moderation.message);
       const b = state.bottles.find((item) => item.id === bottleId);
       if (!b) throw Error('没有找到联系你们的瓶子');
       const message = {

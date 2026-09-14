@@ -82,6 +82,16 @@ test('发信者邀请回信者后，必须经对方接受才能匿名聊天', ()
   assert.equal(savedContact.chatStatus, 'active');
   assert.equal(savedContact.chatMessages[0].body, '谢谢你的回信');
 });
+test('匿名聊天快速拦截站外联系和风险词句', () => {
+  const store = createStore(memory());
+  const bottle = store.send('最近对未来很犹豫', '走过相似阶段的人');
+  const contact = store.get().bottles[0].contacts[0];
+  store.requestChat(bottle.id, contact.id);
+  store.decideChat(bottle.id, 'active', contact.id);
+  assert.throws(() => store.chat(bottle.id, '加我微信 abc123', contact.id), /站外引导/);
+  assert.throws(() => store.chat(bottle.id, '你就是个废物', contact.id), /AI/);
+  assert.equal(store.get().bottles[0].contacts[0].chatMessages.length, 0);
+});
 test('回信者可以婉拒匿名聊天且不能进入对话', () => {
   const store = createStore(memory());
   const bottle = store.receive(SAMPLE, 'accepted');

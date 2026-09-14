@@ -1,0 +1,83 @@
+name: drift-bottle-production
+
+services:
+  mysql:
+    image: mysql:8.4.11
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: drift_bottle
+      MYSQL_USER: drift_app
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      TZ: UTC
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci, --default-time-zone=+00:00]
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_PASSWORD" mysql --protocol=TCP -h 127.0.0.1 -u "$$MYSQL_USER" "$$MYSQL_DATABASE" -e "SELECT 1" >/dev/null 2>&1']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    entrypoint: [migrate, -path, /migrations, -database, 'mysql://drift_app:${MYSQL_PASSWORD}@tcp(mysql:3306)/drift_bottle?charset=utf8mb4&parseTime=true&loc=UTC']
+    command: [up]
+    restart: "no"
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: &backend_environment
+      APP_ENV: production
+      HTTP_ADDR: 0.0.0.0:8080
+      MYSQL_DSN: 'drift_app:${MYSQL_PASSWORD}@tcp(mysql:3306)/drift_bottle?parseTime=true&loc=UTC'
+      AUTH_SIGNING_KEY: ${AUTH_SIGNING_KEY:?Set AUTH_SIGNING_KEY}
+      AUTH_ISSUER: drift-bottle
+      AUTH_AUDIENCE: drift-bottle-web
+      CORS_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN}
+      AI_BASE_URL: ${AI_BASE_URL:?Set AI_BASE_URL}
+      AI_MODEL: ${AI_MODEL:?Set AI_MODEL}
+      AI_API_KEY: ${AI_API_KEY:?Set AI_API_KEY}
+      ZHIHU_ACCESS_SECRET: ${ZHIHU_ACCESS_SECRET:?Set ZHIHU_ACCESS_SECRET}
+      ZHIHU_OAUTH_APP_ID: ${ZHIHU_OAUTH_APP_ID:?Set ZHIHU_OAUTH_APP_ID}
+      ZHIHU_OAUTH_APP_KEY: ${ZHIHU_OAUTH_APP_KEY:?Set ZHIHU_OAUTH_APP_KEY}
+      ZHIHU_OAUTH_REDIRECT_URI: ${PUBLIC_ORIGIN}/api/v1/integrations/zhihu/callback
+      ZHIHU_TOKEN_ENCRYPTION_KEY: ${ZHIHU_TOKEN_ENCRYPTION_KEY:?Set ZHIHU_TOKEN_ENCRYPTION_KEY}
+      ZHIHU_SEARCH_DAILY_BUDGET: ${ZHIHU_SEARCH_DAILY_BUDGET:-500}
+      ACTIVE_BOTTLE_LIMIT: ${ACTIVE_BOTTLE_LIMIT:-3}
+
+  worker:
+    build: ./backend
+    entrypoint: [/worker]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: *backend_environment
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - '${WEB_BIND:-127.0.0.1:8088}:8080'
+    healthcheck:
+      test: [CMD-SHELL, 'wget -qO- http://127.0.0.1:8080/healthz >/dev/null']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mysql_data:

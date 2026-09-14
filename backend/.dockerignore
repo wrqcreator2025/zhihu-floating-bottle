@@ -1,0 +1,5 @@
+.env
+.env.*
+**/*_test.go
+tests
+__pycache__
