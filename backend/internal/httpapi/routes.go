@@ -712,7 +712,7 @@ func (a *api) oauthStart(c *gin.Context) {
 	}
 	a.oauth[state] = oauthAttempt{User: user(c), Nonce: nonce, Expires: time.Now().Add(10 * time.Minute)}
 	a.mu.Unlock()
-	http.SetCookie(c.Writer, &http.Cookie{Name: "zhihu_oauth", Value: nonce, Path: "/api/v1/integrations/zhihu/callback", HttpOnly: true, Secure: a.o.SecureCookies, SameSite: http.SameSiteLaxMode, MaxAge: 600})
+	http.SetCookie(c.Writer, a.oauthCookie(nonce, 600))
 	respond(c, gin.H{"authorizationUrl": a.s.Zhihu.Authorize(state)}, nil, 200)
 }
 
@@ -735,7 +735,11 @@ func (a *api) oauthLogin(c *gin.Context) {
 }
 
 func (a *api) oauthCookie(value string, age int) *http.Cookie {
-	return &http.Cookie{Name: "zhihu_oauth", Value: value, Path: "/api/v1/integrations/zhihu/callback", HttpOnly: true, Secure: a.o.SecureCookies, SameSite: http.SameSiteLaxMode, MaxAge: age}
+	mode := http.SameSiteLaxMode
+	if a.o.SecureCookies {
+		mode = http.SameSiteNoneMode
+	}
+	return &http.Cookie{Name: "zhihu_oauth", Value: value, Path: "/api/v1/integrations/zhihu/callback", HttpOnly: true, Secure: a.o.SecureCookies, SameSite: mode, MaxAge: age}
 }
 func (a *api) sessionCookie(value string, age int) *http.Cookie {
 	mode := http.SameSiteLaxMode

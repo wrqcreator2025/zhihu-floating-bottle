@@ -34,6 +34,17 @@ func TestOAuthAttemptRejectsWrongStateOrCookie(t *testing.T) {
 	}
 }
 
+func TestOAuthCookieAllowsProductionCrossSiteCallback(t *testing.T) {
+	production := (&api{o: Options{SecureCookies: true}}).oauthCookie("nonce", 600)
+	if !production.Secure || production.HttpOnly == false || production.SameSite != http.SameSiteNoneMode {
+		t.Fatalf("production cookie=%+v", production)
+	}
+	local := (&api{}).oauthCookie("nonce", 600)
+	if local.Secure || local.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("local cookie=%+v", local)
+	}
+}
+
 func TestPublicRouteInventory(t *testing.T) {
 	router := New(&service.Service{}, Options{})
 	want := map[string]bool{
