@@ -8,8 +8,8 @@
 2. `+ New` → `Database` → `MySQL` 创建数据库服务。保留默认私有网络，等待其健康状态正常。
 3. `+ New` → `GitHub Repo` 选择相同仓库，创建 `api` 服务。Settings → Build → Root Directory 设为 `/backend`，Builder 选 Dockerfile（文件为 `backend/Dockerfile`）。
 4. API 的 Settings → Deploy → Pre-deploy Command 填 `/migrate-railway.sh`。脚本使用 Railway 注入的 `MYSQL_URL` 自动应用所有未运行的 migration；`up` 可重复运行。Healthcheck Path 填 `/healthz`。
-5. API Variables 添加下表变量。数据库项用 Railway 引用变量，点击变量值输入框的引用选择器选择 MySQL 服务，不要粘贴本地 `.env`。
-6. API Settings → Networking → Generate Domain，记录 `https://…up.railway.app`。确认部署后访问 `<API 域名>/healthz` 返回 `{"data":{"status":"ok"}}`。
+5. API Variables 添加下表变量。数据库项用 Railway 引用变量，点击变量值输入框的引用选择器选择 MySQL 服务，不要粘贴本地 `.env`。`CORS_ORIGIN` 暂时留空，等 Vercel 域名生成后再补。
+6. API Settings → Networking → Generate Domain，记录 `https://…up.railway.app`。将这个域名填入 `ZHIHU_OAUTH_REDIRECT_URI`（加上表格中的回调路径），然后部署 API。访问 `<API 域名>/healthz` 应返回 `{"data":{"status":"ok"}}`。
 7. 再添加相同仓库为 `worker` 服务，Root Directory 同为 `/backend`。Variables 设置 API 所需的数据库、AI 和知乎变量（不需要 `AUTH_SIGNING_KEY`、`CORS_ORIGIN`）；Settings → Deploy → Custom Start Command 填 `/worker`。worker 不需要公网域名或健康检查。
 
 | 变量 | API | Worker | 值 |
@@ -22,7 +22,7 @@
 | `MYSQLDATABASE` | 是 | 是 | `${{MySQL.MYSQLDATABASE}}` |
 | `MYSQL_URL` | 是 | 是 | `${{MySQL.MYSQL_URL}}`；API 预部署迁移使用 |
 | `AUTH_SIGNING_KEY` | 是 | — | 至少 32 字节随机密钥 |
-| `CORS_ORIGIN` | 是 | — | Vercel 正式域名 Origin，例如 `https://your-project.vercel.app`，不能带路径或尾斜杠 |
+| `CORS_ORIGIN` | Vercel 部署后设置 | — | Vercel 正式域名 Origin，例如 `https://your-project.vercel.app`，不能带路径或尾斜杠 |
 | `CORS_ORIGINS` | 可选 | — | 额外允许的精确 Origin，逗号分隔；不要写通配符 |
 | `ZHIHU_OAUTH_APP_ID` | 是 | 是 | 知乎开放平台应用 ID |
 | `ZHIHU_OAUTH_APP_KEY` | 是 | 是 | 知乎 OAuth 应用密钥 |
@@ -42,7 +42,7 @@ Railway 的 `PORT` 会自动注入，API 监听 `0.0.0.0:$PORT`，本地缺省�
 1. 在 Vercel Add New → Project 导入相同 GitHub 仓库。
 2. Root Directory 选择 `frontend`，Framework Preset 选 Vite。仓库的 `frontend/vercel.json` 已设冻结锁文件安装、构建和 SPA 路由回退，输出目录为 `dist`。
 3. Settings → Environment Variables 添加 `VITE_API_BASE_URL=https://<API域名>`，勾选 Production；有 Preview 部署时可为 Preview 单独设 API 地址。该变量在构建时写入前端 bundle，变更后需要重新部署。
-4. Deploy。Vercel 给出 `https://…vercel.app` 后，回到 Railway API Variables，把完整 Origin 设置为 `CORS_ORIGIN` 并重新部署 API。
+4. Deploy。Vercel 给出 `https://…vercel.app` 后，回到 Railway API Variables，把完整 Origin 设置为 `CORS_ORIGIN` 并重新部署 API。需要允许 Preview 时，将每个预览域名精确加入 `CORS_ORIGINS`。
 5. 在知乎开放平台将回调地址精确登记为 `ZHIHU_OAUTH_REDIRECT_URI` 的值。Cookie 跨站配置要求正式前端和 API 都使用 HTTPS。
 
 ## 当前 Demo 的边界
