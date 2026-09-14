@@ -584,7 +584,7 @@ func page(c *gin.Context, prefix string) (string, int, bool) {
 	return cursor, limit, true
 }
 func targetPatch(c *gin.Context, p *service.TargetPatch) bool {
-	if p.Hint != nil && !text(c, p.Hint, 4000, true) {
+	if p.Hint != nil && !text(c, p.Hint, 4000, false) {
 		return false
 	}
 	for _, a := range []*[]string{p.Required, p.Preferred, p.Viewpoints} {

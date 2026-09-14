@@ -16,12 +16,38 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#loading')).not.toBeVisible();
 });
-test('海面正常渲染，无示例来信时显示空状态', async ({ page }) => {
+test('第一次接收开发者指南，保存刷新后可重读', async ({ page }) => {
   await expect(page.locator('#scene canvas')).toBeVisible();
   await expect(page.locator('[data-action="bottle"]')).toHaveCount(0);
+  await expect(page.getByText('本地体验', { exact: true })).toHaveCount(0);
+  await openBottle(page, 'receive');
+  await expect(page.locator('#sheet')).toContainText('来自漂流瓶开发者');
+  await page.screenshot({ path: `../开发者指南-${test.info().project.name}-${Date.now()}.png`, animations: 'disabled' });
+  await page.locator('[data-action="keep-guide"]').click();
+  await page.reload();
+  await expect(page.locator('#loading')).not.toBeVisible();
   await page.locator('[data-action="receive"]').first().click();
   await expect(page.locator('#toast')).toContainText('暂时没有新的来信');
   await expect(page.locator('#sheet')).not.toBeVisible();
+  await page.locator('#navigation [data-action="island"]').click();
+  await page.locator('#navigation [data-action="room"]').click();
+  await page.locator('#navigation [data-action="cabinet"]').click();
+  await page.locator('[data-action="records"]').click();
+  await page.locator('.record').click();
+  await expect(page.locator('#sheet')).toContainText('你的第一只漂流瓶');
+  await expect(page.locator('#reply-form')).toHaveCount(0);
+});
+test('知乎登录状态由真实会话响应决定，刷新仍回显', async ({ page }) => {
+  await page.route('**/api/v1/auth/session', (route) => route.fulfill({
+    json: { data: { id: 'usr_test', provider: 'zhihu' } },
+  }));
+  await page.reload();
+  await expect(page.getByText('✓ 知乎已登录')).toBeVisible();
+  await expect(page.locator('[data-action="zhihu-login"]')).toHaveCount(0);
+  await page.route('**/api/v1/auth/session', (route) => route.fulfill({ status: 401, json: { error: {} } }));
+  await page.reload();
+  await expect(page.locator('[data-action="zhihu-login"]')).toBeVisible();
+  await expect(page.getByText('✓ 知乎已登录')).toHaveCount(0);
 });
 test('连续抛出两只瓶子，日记独立保存、编辑和关闭接收', async ({ page }) => {
   for (const body of [

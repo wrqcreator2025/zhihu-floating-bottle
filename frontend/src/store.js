@@ -1,6 +1,11 @@
 import { checkMessage } from './moderation.js';
 
 export const STORAGE_KEY = 'episode-island-v1';
+export const GUIDE = {
+  id: 'developer-guide-v1',
+  body: '欢迎来到你的海边。\n\n这是开发者送给你的第一只漂流瓶。\n\n抛出瓶子：登录知乎账号，写下你正在经历的事。AI 会帮你整理问题、建议想找的人；你可以修改建议，确认后再抛向海面。点击整理后，原稿会保存到账号。\n\n接收瓶子：从海边接收来信。遇到亲自经历过的事，可以留下回应；不想聊也可以放行。回信通过审核后才会送达。\n\n瓶子柜：靠近小岛，进入小屋，在左边的瓶子柜重读来往的信、刷新寻找进度。收到回信后，可以邀请对方匿名聊天。\n\n我的经历：在小屋右边的日记里记录真实经历，并选择是否愿意接收相关来信。它与你抛出的瓶子分开保存。\n\n照顾好自己：不要在瓶子里留下电话、住址等私人信息，也不必勉强回应。\n\n登录后的瓶子和经历保存在账号下。这份指南保存在当前浏览器，可在瓶子柜重读。\n\n愿这里能陪你慢慢说。\n—— 漂流瓶开发者',
+  target: '第一次来到这片海的你',
+};
 const blank = () => ({
   version: 1,
   bottles: [],
@@ -72,6 +77,18 @@ export function createStore(storage, onError = () => {}) {
   const id = () => globalThis.crypto.randomUUID();
   return {
     get: () => structuredClone(state),
+    hasGuide: () => state.bottles.some((b) => b.sampleId === GUIDE.id),
+    keepGuide() {
+      const existing = state.bottles.find((b) => b.sampleId === GUIDE.id);
+      if (existing) return structuredClone(existing);
+      const bottle = {
+        id: id(), sampleId: GUIDE.id, kind: 'received', body: GUIDE.body,
+        target: GUIDE.target, status: 'saved', createdAt: Date.now(),
+      };
+      state.bottles.unshift(bottle);
+      persist();
+      return structuredClone(bottle);
+    },
     draft(body, target) {
       state.draft = { body, target };
       persist();

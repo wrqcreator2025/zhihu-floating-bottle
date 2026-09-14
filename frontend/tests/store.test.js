@@ -1,6 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStore, STORAGE_KEY } from '../src/store.js';
+import { createStore, STORAGE_KEY, GUIDE } from '../src/store.js';
+test('开发者指南仅收取一次，刷新可重读且不能当真人来信回复', () => {
+  const storage = memory();
+  const store = createStore(storage);
+  assert.equal(store.hasGuide(), false);
+  const guide = store.keepGuide();
+  store.keepGuide();
+  const restored = createStore(storage);
+  assert.equal(restored.hasGuide(), true);
+  assert.equal(restored.get().bottles.length, 1);
+  assert.equal(restored.get().bottles[0].body, GUIDE.body);
+  assert.throws(() => restored.reply(guide.id, '回信', true));
+});
 const SAMPLE = {
   id: 'test-incoming',
   body: '第一次找实习，我总觉得自己还不够格。\n\n最近开始准备第一份产品实习。岗位要求里的每一条，都让我觉得自己还没有准备好。投了几份没有回音，就更不敢继续了。\n\n你第一次找实习时，也会这样吗？后来是哪一步，让你不再只盯着自己不会的东西？',

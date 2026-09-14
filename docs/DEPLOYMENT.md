@@ -45,9 +45,15 @@ Railway 的 `PORT` 会自动注入，API 监听 `0.0.0.0:$PORT`，本地缺省�
 4. Deploy。Vercel 给出 `https://…vercel.app` 后，回到 Railway API Variables，把完整 Origin 设置为 `CORS_ORIGIN`，并把 `ZHIHU_OAUTH_REDIRECT_URI` 设置为 `https://…vercel.app/api/v1/integrations/zhihu/callback`。知乎项目页面登记完全相同的回调地址，然后重新部署 API。
 5. 在知乎开放平台将回调地址精确登记为 `ZHIHU_OAUTH_REDIRECT_URI` 的值。Cookie 跨站配置要求正式前端和 API 都使用 HTTPS。
 
-## 当前 Demo 的边界
+## 前端联调与验证
 
-现有 Vite 交互页面的瓶子、经历、收件箱和聊天演示数据仍保存在浏览器 `localStorage`；`VITE_API_BASE_URL` 当前用于知乎登录入口，页面业务操作尚未改为调用后端 API。因此此部署能让评委公网打开并体验现有前端 Demo，也会启动带 MySQL migration 的后端和 worker，但前端 Demo 数据不会跨设备保存到 Railway MySQL。登录、AI 和真实知乎数据需要填好上面相应凭证；缺少密钥时相应功能不能完成线上联调。
+登录后的页面已调用后端：AI 整理问题和建议目标、用户确认后抛瓶、账号瓶子柜、经历保存和编辑、接收邀请、提交审核回信和双方同意后的匿名聊天。前端不持有模型密钥。未登录的本地开发保留原交互演示；开发者指南保存在当前浏览器。
+
+部署时 API 和 worker 都必须配置 `AI_BASE_URL`、`AI_MODEL`、`AI_API_KEY`。知乎搜索的 `ZHIHU_ACCESS_SECRET` 用于获取公开讨论，不能代替当前模型配置。仅部署前端或 API 不会运行后台审核、匹配任务，必须同时启动 worker。
+
+验证步骤：知乎登录后检查「✓ 知乎已登录」；打开空瓶填写问题，点击「让 AI 帮我整理」；确认页修改目标经历再抛瓶；进入瓶子柜刷新实际审核和寻找状态；在日记中保存本人经历并开放接收。需要另一个真实账号填写符合条件的经历，才能验证接收、回信和聊天。没有匹配人时不会生成 AI 回信。
+
+若显示「内容处理服务尚未配置」，检查 API 的模型地址和模型名；若显示「内容处理暂时不可用」，检查密钥、模型权限和上游网络。自动化浏览器测试模拟业务接口，不证明部署环境中的模型凭证已可用。
 
 ## 本地预检
 

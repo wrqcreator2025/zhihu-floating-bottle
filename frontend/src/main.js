@@ -1,12 +1,15 @@
 import '@fontsource-variable/noto-sans-sc';
 import './style.css';
 import { createWorld } from './scene.js';
-import { createStore } from './store.js';
+import { createStore, GUIDE } from './store.js';
+import { createAPI } from './api.js';
+import { createOnline } from './online.js';
 
 const configuredAPI = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 // Production uses Vercel's same-origin /api rewrite so OAuth and session
 // cookies are first-party. Local development still talks directly to Go.
 const API_BASE = import.meta.env.PROD ? '' : configuredAPI;
+const api = createAPI(API_BASE);
 
 const $ = (s) => document.querySelector(s);
 const escape = (v = '') =>
@@ -37,6 +40,23 @@ try {
   };
 }
 const store = createStore(storage, toast);
+let signedIn = false;
+let online = null;
+let sessionUserId = null;
+async function refreshSession() {
+  try {
+    const profile = await api('/auth/session');
+    signedIn = !!profile?.id && profile.provider === 'zhihu';
+    if (signedIn && profile.id !== sessionUserId) {
+      sessionUserId = profile.id;
+      online = createOnline({ api, storage, userId: profile.id, openSheet, closeButton, btn, escape, toast, launch, setView, showGuide, hasGuide: store.hasGuide });
+    }
+  } catch {
+    signedIn = false;
+  }
+  if (!signedIn) { online = null; sessionUserId = null; }
+  renderNavigation();
+}
 let view = 'home',
   mode = 'receive',
   tab = 'received',
@@ -109,7 +129,9 @@ function renderNavigation() {
       .join('')}</h1><p>${c[2]}</p>`;
   const links = {
     home:
-      btn('zhihu-login', '使用知乎账号登录 ' + iconArrow, 'primary') +
+      (signedIn
+        ? '<span class="primary" role="status">✓ 知乎已登录</span>'
+        : btn('zhihu-login', '使用知乎账号登录 ' + iconArrow, 'primary')) +
       btn('island', '靠近小岛 ' + iconArrow) +
       btn('receive', '接收一个瓶子 ' + iconArrow) +
       btn('write', '抛出一个瓶子 ' + iconArrow),
@@ -156,6 +178,7 @@ function openSheet(content, kind = 'letter') {
   }
 }
 function closeSheet() {
+  if (online?.busy) return;
   sheet.close();
   document.body.classList.remove('reading');
   uncorking = false;
@@ -182,6 +205,11 @@ sheet.addEventListener('click', (e) => {
 });
 
 function showWrite() {
+  if (online) return online.write();
+  if (import.meta.env.PROD) {
+    openSheet(`${closeButton()}<h2>登录后，把故事寄出去。</h2><p class="subtext">使用知乎账号登录，即可让 AI 帮你整理问题，并把瓶子保存到账号。</p>${btn('zhihu-login', '使用知乎账号登录 ↗', 'primary')}`);
+    return;
+  }
   const draft = store.get().draft;
   openSheet(
     `${closeButton()}<div class="eyebrow">A LETTER TO SOMEONE WHO HAS BEEN THERE</div><h2>最近，你在演哪一集？</h2><p class="subtext">不必整理好措辞。从眼下最想说的事开始。</p><form id="write-form"><label for="bottle-body">你正在经历什么？</label><textarea id="bottle-body" name="body" required rows="5" placeholder="比如，准备第一份实习，却总觉得自己还没准备好……">${escape(draft.body)}</textarea><div class="prompts">${['第一次找实习', '在读研与就业之间犹豫', '想换一个方向'].map((t) => btn('prompt:' + t, t, 'chip')).join('')}</div><label for="bottle-target">想听走过哪段路的人说说？</label><textarea id="bottle-target" name="target" required rows="2" placeholder="比如，也经历过求职受挫、后来继续尝试的人。">${escape(draft.target)}</textarea><footer class="form-footer"><span>仅在此浏览器保存 · 不会真实发送</span><button class="primary" type="submit">装好，抛向海面 ${iconArrow}</button></footer></form>`,
@@ -201,13 +229,24 @@ function showWrite() {
   });
 }
 function showIncoming() {
+  if (currentIncoming?.id === GUIDE.id) {
+    showGuide();
+    return;
+  }
   openSheet(
     `${closeButton()}<div class="eyebrow">来自海上的一封信 <span class="badge">示例来信</span></div><h2>第一次找实习，<br>我总觉得自己还不够格。</h2><p class="letter-copy">${escape(currentIncoming.body.split('\n\n').slice(1).join('\n\n'))}</p><div class="wanted"><small>TA 想听谁的经历</small><p>${escape(currentIncoming.target)}</p></div><p class="subtext">如果你亲自走过这段路，可以接住；这次不想聊，也没关系。</p><div class="receive-actions">${btn('accept', '我演过，接住这封信', 'primary')}${btn('decline', '这次不聊')}${btn('not-me', '我没经历过')}</div><p class="fine-print">这是操作示例，不是根据你的经历匹配的真人来信。</p>`,
   );
 }
+function showGuide(saved = false) {
+  openSheet(`${closeButton()}<div class="eyebrow">来自漂流瓶开发者 · 使用指南</div><h2>你的第一只漂流瓶。</h2><p class="letter-copy">${escape(GUIDE.body)}</p>${saved ? btn('records', '← 返回瓶子柜') : btn('keep-guide', '收好指南，开始探索', 'primary')}`);
+}
 function showRecord(id) {
   const b = store.get().bottles.find((x) => x.id === id);
   if (!b) return;
+  if (b.sampleId === GUIDE.id) {
+    showGuide(true);
+    return;
+  }
   activeRecord = id;
   activeContact = null;
   const replyForm =
@@ -297,6 +336,7 @@ function showChat() {
 }
 
 function recordStatus(bottle) {
+  if (bottle.sampleId === GUIDE.id) return '开发者使用指南';
   if (bottle.kind === 'sent') {
     const contacts = bottle.contacts ?? [];
     const active = contacts.filter(
@@ -317,6 +357,7 @@ function recordStatus(bottle) {
 }
 
 function records() {
+  if (online) return online.records(tab);
   setView('cabinet');
   const all = store
     .get()
@@ -338,6 +379,7 @@ function records() {
   );
 }
 function diary(id = null) {
+  if (online) return online.diary(id);
   setView('diary');
   editingExperience = id;
   const entries = store.get().experiences;
@@ -392,6 +434,7 @@ function prepareBottle(nextMode) {
   setView('bottle');
 }
 function action(a) {
+  if (online?.busy) return;
   if (sending && a !== 'landed') return;
   if (a.startsWith('open:')) {
     showRecord(a.slice(5));
@@ -525,7 +568,17 @@ function action(a) {
     case 'sample':
     case 'receive':
     case 'bottle':
-      toast('暂时没有新的来信。');
+      if (!store.hasGuide()) {
+        prepareBottle('receive');
+        currentIncoming = GUIDE;
+      } else if (online) void online.receive();
+      else toast('暂时没有新的来信。');
+      break;
+    case 'keep-guide':
+      store.keepGuide();
+      closeSheet();
+      updateScene();
+      toast('指南已收进瓶子柜，随时可以重读。');
       break;
     case 'uncork':
       if (view !== 'bottle' || pickingUp || uncorking) return;
@@ -599,6 +652,10 @@ try {
   toast('此设备暂不支持三维画面，仍可通过下方入口操作。');
 }
 setView('home');
+void refreshSession();
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) void refreshSession();
+});
 requestAnimationFrame(() =>
   setTimeout(() => $('#loading').classList.add('loaded'), 450),
 );

@@ -8,7 +8,16 @@ import (
 
 	"driftbottle/internal/auth"
 	"driftbottle/internal/service"
+	"github.com/gin-gonic/gin"
 )
+
+func TestOptionalTargetHintCanBeCleared(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	hint := ""
+	if !targetPatch(c, &service.TargetPatch{Hint: &hint}) {
+		t.Fatal("optional target hint could not be cleared")
+	}
+}
 
 func oauthTestAPI() *api {
 	return &api{o: Options{Auth: auth.Auth{Key: []byte(strings.Repeat("k", 32)), Issuer: "test", Audience: "test"}}}
