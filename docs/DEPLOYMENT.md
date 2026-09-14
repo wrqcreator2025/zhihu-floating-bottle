@@ -41,8 +41,8 @@ Railway 的 `PORT` 会自动注入，API 监听 `0.0.0.0:$PORT`，本地缺省�
 
 1. 在 Vercel Add New → Project 导入相同 GitHub 仓库。
 2. Root Directory 选择 `frontend`，Framework Preset 选 Vite。仓库的 `frontend/vercel.json` 已设冻结锁文件安装、构建和 SPA 路由回退，输出目录为 `dist`。
-3. Settings → Environment Variables 添加 `VITE_API_BASE_URL=https://<API域名>`，勾选 Production；有 Preview 部署时可为 Preview 单独设 API 地址。该变量在构建时写入前端 bundle，变更后需要重新部署。
-4. Deploy。Vercel 给出 `https://…vercel.app` 后，回到 Railway API Variables，把完整 Origin 设置为 `CORS_ORIGIN` 并重新部署 API。需要允许 Preview 时，将每个预览域名精确加入 `CORS_ORIGINS`。
+3. 生产请求通过 `vercel.json` 将同域 `/api/*` 转发至 Railway，避免 OAuth 与登录会话被浏览器按第三方 Cookie 拦截。`VITE_API_BASE_URL` 只供本地开发直连 Go 后端使用。
+4. Deploy。Vercel 给出 `https://…vercel.app` 后，回到 Railway API Variables，把完整 Origin 设置为 `CORS_ORIGIN`，并把 `ZHIHU_OAUTH_REDIRECT_URI` 设置为 `https://…vercel.app/api/v1/integrations/zhihu/callback`。知乎项目页面登记完全相同的回调地址，然后重新部署 API。
 5. 在知乎开放平台将回调地址精确登记为 `ZHIHU_OAUTH_REDIRECT_URI` 的值。Cookie 跨站配置要求正式前端和 API 都使用 HTTPS。
 
 ## 当前 Demo 的边界

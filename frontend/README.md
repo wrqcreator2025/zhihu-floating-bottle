@@ -13,7 +13,7 @@ corepack pnpm install
 corepack pnpm dev
 ```
 
-本地联调知乎 OAuth 时设置 `VITE_API_BASE_URL=http://127.0.0.1:8080`。部署到 Vercel 时在 Project Environment Variables 中设置 `VITE_API_BASE_URL=https://<Railway API 域名>`，再触发一次生产部署。详细步骤见 [部署说明](../docs/DEPLOYMENT.md)。
+本地联调知乎 OAuth 时设置 `VITE_API_BASE_URL=http://127.0.0.1:8080`。Vercel 生产环境通过同域 `/api` 重写转发至 Railway，使 OAuth 和登录会话 Cookie 保持第一方；知乎项目和 Railway 的 OAuth 回调地址均登记为 `https://zhihu-floating-bottle.vercel.app/api/v1/integrations/zhihu/callback`。详细步骤见 [部署说明](../docs/DEPLOYMENT.md)。
 
 打开终端显示的本地地址。不要直接双击 `index.html`，Vite 负责加载 ES 模块和着色器代码。
 

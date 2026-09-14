@@ -3,7 +3,10 @@ import './style.css';
 import { createWorld } from './scene.js';
 import { createStore } from './store.js';
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+const configuredAPI = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+// Production uses Vercel's same-origin /api rewrite so OAuth and session
+// cookies are first-party. Local development still talks directly to Go.
+const API_BASE = import.meta.env.PROD ? '' : configuredAPI;
 
 const $ = (s) => document.querySelector(s);
 const escape = (v = '') =>
@@ -419,7 +422,7 @@ function action(a) {
   }
   switch (a) {
 	case 'zhihu-login':
-      if (!API_BASE) {
+	  if (!import.meta.env.PROD && !API_BASE) {
         toast('登录服务尚未配置，请设置 VITE_API_BASE_URL 后重新部署。');
         break;
       }

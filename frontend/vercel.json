@@ -2,5 +2,11 @@
   "installCommand": "corepack pnpm install --frozen-lockfile",
   "buildCommand": "corepack pnpm build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/" }]
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://zhihu-floating-bottle-production-8249.up.railway.app/api/:path*"
+    },
+    { "source": "/(.*)", "destination": "/" }
+  ]
 }
