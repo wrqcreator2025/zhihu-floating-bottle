@@ -4,9 +4,35 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"driftbottle/internal/service"
 )
+
+func TestOAuthAttemptAcceptsMissingStateWithBoundCookie(t *testing.T) {
+	a := &api{oauth: map[string]oauthAttempt{
+		"expected-state": {Nonce: "browser-nonce", Login: true, Expires: time.Now().Add(time.Minute)},
+	}}
+	attempt, ok := a.takeOAuthAttempt("", "browser-nonce")
+	if !ok || !attempt.Login || len(a.oauth) != 0 {
+		t.Fatalf("attempt=%+v ok=%v remaining=%d", attempt, ok, len(a.oauth))
+	}
+}
+
+func TestOAuthAttemptRejectsWrongStateOrCookie(t *testing.T) {
+	for _, tc := range []struct{ state, cookie string }{
+		{"wrong-state", "browser-nonce"},
+		{"expected-state", "wrong-nonce"},
+		{"", "wrong-nonce"},
+	} {
+		a := &api{oauth: map[string]oauthAttempt{
+			"expected-state": {Nonce: "browser-nonce", Expires: time.Now().Add(time.Minute)},
+		}}
+		if _, ok := a.takeOAuthAttempt(tc.state, tc.cookie); ok {
+			t.Fatalf("accepted state=%q cookie=%q", tc.state, tc.cookie)
+		}
+	}
+}
 
 func TestPublicRouteInventory(t *testing.T) {
 	router := New(&service.Service{}, Options{})

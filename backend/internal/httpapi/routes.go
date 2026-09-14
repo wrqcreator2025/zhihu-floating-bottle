@@ -756,15 +756,8 @@ func (a *api) logout(c *gin.Context) {
 func (a *api) oauthCallback(c *gin.Context) {
 	state := c.Query("state")
 	cookie, _ := c.Cookie("zhihu_oauth")
-	a.mu.Lock()
-	attempt, ok := a.oauth[state]
-	if ok && cookie != "" && subtle.ConstantTimeCompare([]byte(cookie), []byte(attempt.Nonce)) == 1 {
-		delete(a.oauth, state)
-	} else {
-		ok = false
-	}
-	a.mu.Unlock()
-	if !ok || !attempt.Expires.After(time.Now()) {
+	attempt, ok := a.takeOAuthAttempt(state, cookie)
+	if !ok {
 		respond(c, nil, domain.Fail(400, "OAUTH_STATE_INVALID", "授权回调无法与本次操作绑定，请重新授权"), 400)
 		return
 	}
@@ -795,4 +788,43 @@ func (a *api) oauthCallback(c *gin.Context) {
 		return
 	}
 	respond(c, gin.H{"status": "connected"}, err, 200)
+}
+
+func (a *api) takeOAuthAttempt(state, cookie string) (oauthAttempt, bool) {
+	if cookie == "" {
+		return oauthAttempt{}, false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	for key, attempt := range a.oauth {
+		if !attempt.Expires.After(now) {
+			delete(a.oauth, key)
+		}
+	}
+	if state != "" {
+		attempt, ok := a.oauth[state]
+		if !ok || subtle.ConstantTimeCompare([]byte(cookie), []byte(attempt.Nonce)) != 1 {
+			return oauthAttempt{}, false
+		}
+		delete(a.oauth, state)
+		return attempt, true
+	}
+	// The hackathon OAuth callback may omit state. The random HttpOnly cookie
+	// still binds the callback to the browser that initiated this one-time flow.
+	var matchedKey string
+	var matched oauthAttempt
+	for key, attempt := range a.oauth {
+		if subtle.ConstantTimeCompare([]byte(cookie), []byte(attempt.Nonce)) == 1 {
+			if matchedKey != "" {
+				return oauthAttempt{}, false
+			}
+			matchedKey, matched = key, attempt
+		}
+	}
+	if matchedKey == "" {
+		return oauthAttempt{}, false
+	}
+	delete(a.oauth, matchedKey)
+	return matched, true
 }
