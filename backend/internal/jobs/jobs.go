@@ -43,6 +43,7 @@ func (w *Worker) Once(ctx context.Context) (bool, error) {
 	if err != nil || j == nil {
 		return false, err
 	}
+	slog.Info("background task started", "job_id", j.ID, "type", j.Type, "attempt", j.Attempts)
 	taskCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	var p domain.JobPayload
@@ -185,6 +186,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	if err := w.Recover(ctx); err != nil {
 		return err
 	}
+	slog.Info("worker ready")
 	poll := time.NewTicker(time.Second)
 	defer poll.Stop()
 	recoverTick := time.NewTicker(time.Minute)
