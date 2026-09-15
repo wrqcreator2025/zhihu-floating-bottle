@@ -117,3 +117,27 @@ test('stale AI responses are rejected and an uncertain launch is reconciled with
   await draft.confirm('标题', { requiredExperiences: ['经历'] });
   assert.equal(calls.filter((c) => c.path.endsWith('/launch')).length, 1);
 });
+
+test('retry after a lost launch response reuses the sent bottle', async () => {
+  const { api, calls } = server();
+  let loseResponse = true;
+  const draft = createBottleDraft(
+    async (path, options) => {
+      const result = await api(path, options);
+      if (path.endsWith('/launch') && loseResponse) {
+        loseResponse = false;
+        throw Error('connection lost');
+      }
+      return result;
+    },
+    memory(),
+    'alice',
+  );
+  const target = { requiredExperiences: ['相似处境'] };
+  await draft.prepare('原文', '');
+  await assert.rejects(draft.confirm('标题', target), /connection lost/);
+  await draft.prepare('原文', '');
+  await draft.confirm('标题', target);
+  assert.equal(calls.filter((c) => c.path === '/bottles').length, 1);
+  assert.equal(calls.filter((c) => c.path.endsWith('/launch')).length, 1);
+});

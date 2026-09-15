@@ -65,6 +65,19 @@ export function createBottleDraft(api, storage, userId) {
       return bottle;
     },
     async prepare(body, hint) {
+      // A launch may have succeeded even when its response was lost.
+      if (bottle) {
+        const latest = await api(`/bottles/${bottle.id}`);
+        remember(latest.bottle);
+        if (bottle.status === 'searching') {
+          if (
+            bottle.episode.rawText === body &&
+            bottle.target.hintText === hint
+          )
+            return bottle;
+          throw Error('上一只瓶子已发出，请重新打开发瓶页面后写新瓶子。');
+        }
+      }
       if (!bottle || bottle.status !== 'draft') {
         return remember(
           await api('/bottles', {

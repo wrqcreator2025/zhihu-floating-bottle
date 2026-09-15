@@ -43,6 +43,8 @@ API 默认监听 `127.0.0.1:8080`，健康检查为 `GET /healthz`，业务前�
 
 未配置模型时，草稿保存和已有记录查询可用；AI 整理返回 `503 AI_UNAVAILABLE`。抛瓶和消息的后台审核不会默认通过；任务失败按重试机制保留为 `search_error` 或 `moderation_failed`。测试模型只存在于测试文件，生产没有自动放行的 mock 模式。
 
+AI 适配器兼容 JSON 外的 Markdown、说明文字、前置思考块和文本内容块；格式异常时在请求期限内重试一次。截断响应、多个冲突对象和字段类型错误仍返回 `AI_PROTOCOL_ERROR`。日志仅记录任务和失败原因（如 `invalid_envelope`、`invalid_json_object`、`invalid_field_type`），不记录用户原文、模型全文或密钥。前端支持直接发瓶，整理为可选步骤；审核与匹配仍由 worker 执行。
+
 ## 知乎接入
 
 严格依据 `../zhihu/references/{hackathon-oauth,user-api,http-api}.md`，直接使用 HTTP，不需要安装或部署知乎 CLI：

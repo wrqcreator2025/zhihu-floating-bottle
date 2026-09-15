@@ -1,5 +1,90 @@
 import { test, expect } from '@playwright/test';
 
+test('直接发瓶不依赖 AI，提交失败保留原稿，重试成功才显示已发出', async ({
+  page,
+}) => {
+  let bottle;
+  let creates = 0;
+  let attempts = 0;
+  let aiCalls = 0;
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace('/api/v1', '');
+    const input = request.postDataJSON();
+    let data;
+    if (path === '/auth/session') data = { id: 'usr_alice', provider: 'zhihu' };
+    else if (path === '/bottles') {
+      creates++;
+      data = bottle = {
+        id: 'btl_direct',
+        status: 'draft',
+        contentVersion: 1,
+        episode: { rawText: input.episodeText },
+        target: { hintText: input.targetHint },
+      };
+    } else if (path.startsWith('/ai/')) {
+      aiCalls++;
+      return route.fulfill({
+        status: 503,
+        json: {
+          error: { code: 'AI_PROTOCOL_ERROR', message: '内容处理结果无效' },
+        },
+      });
+    } else if (path === '/bottles/btl_direct/launch') {
+      attempts++;
+      expect(bottle.episode.confirmed).toBe(true);
+      expect(bottle.target.requiredExperiences).toEqual([
+        '亲身经历过与这段描述相似的处境',
+      ]);
+      if (attempts === 1)
+        return route.fulfill({
+          status: 503,
+          json: { error: { message: '服务暂时出错，请重试' } },
+        });
+      bottle.status = 'searching';
+      data = { bottleId: bottle.id, status: bottle.status };
+    } else if (path === '/bottles/btl_direct') {
+      if (request.method() === 'PATCH') {
+        expect(input.sourceContentVersion).toBe(bottle.contentVersion);
+        bottle.contentVersion++;
+        Object.assign(bottle.episode, input.episode);
+        Object.assign(bottle.target, input.target);
+        data = bottle;
+      } else data = { bottle };
+    } else
+      return route.fulfill({
+        status: 404,
+        json: { error: { message: 'unused' } },
+      });
+    await route.fulfill({ json: { data } });
+  });
+  await page.goto('/');
+  await expect(page.getByText('✓ 知乎已登录')).toBeVisible();
+  await expect(page.locator('#loading')).not.toBeVisible();
+  await page.locator('#navigation [data-action="write"]').click();
+  await page.locator('[data-action="uncork"]').click();
+  await page.locator('#bottle-body').fill('刚换了一份工作，想听听相似的经历。');
+  await page.locator('#send-bottle').click();
+  await expect(page.locator('#online-write [role=status]')).toContainText(
+    '请重试',
+  );
+  await expect(page.locator('#bottle-body')).toHaveValue(
+    '刚换了一份工作，想听听相似的经历。',
+  );
+  await expect(page.locator('#toast')).not.toContainText('瓶子已发出');
+  await page.screenshot({
+    path: `../发瓶流程-${test.info().project.name}-${Date.now()}.png`,
+    animations: 'disabled',
+  });
+  await page.locator('#send-bottle').click();
+  await expect(page.locator('#toast')).toContainText('瓶子已发出', {
+    timeout: 15000,
+  });
+  expect(aiCalls).toBe(0);
+  expect(creates).toBe(1);
+  expect(attempts).toBe(2);
+});
+
 test('AI 失败保留原稿，重试复用草稿，用户确认后才抛出并读取云端记录', async ({
   page,
 }) => {
@@ -84,16 +169,16 @@ test('AI 失败保留原稿，重试复用草稿，用户确认后才抛出并�
   await page.locator('#navigation [data-action="write"]').click();
   await page.locator('[data-action="uncork"]').click();
   await page.locator('#bottle-body').fill('第一次找实习，不知道如何面对失败。');
-  await page.locator('#online-write button[type=submit]').click();
+  await page.locator('#suggest-bottle').click();
   await expect(page.locator('#online-write [role=status]')).toContainText(
-    '尚未配置',
+    '可以直接点击',
   );
   await expect(page.locator('#bottle-body')).toHaveValue(
     '第一次找实习，不知道如何面对失败。',
   );
   expect(launches).toBe(0);
   aiUnavailable = false;
-  await page.locator('#online-write button[type=submit]').click();
+  await page.locator('#suggest-bottle').click();
   await expect(page.locator('#online-confirm')).toBeVisible();
   expect(creates).toBe(1);
   expect(launches).toBe(0);
@@ -103,7 +188,7 @@ test('AI 失败保留原稿，重试复用草稿，用户确认后才抛出并�
     animations: 'disabled',
   });
   await page.locator('#online-confirm button[type=submit]').click();
-  await expect(page.locator('#toast')).toContainText('瓶子已提交', {
+  await expect(page.locator('#toast')).toContainText('瓶子已发出', {
     timeout: 15000,
   });
   expect(launches).toBe(1);

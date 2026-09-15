@@ -40,6 +40,11 @@ export function createOnline({
   let busy = false;
   let savedInput = null;
   function errorText(error) {
+    if (
+      $('#online-write') &&
+      ['AI_PROTOCOL_ERROR', 'AI_UNAVAILABLE'].includes(error.code)
+    )
+      return '暂时无法整理，原稿已保留。你可以直接点击“发出瓶子”。';
     if (error.code === 'NOT_EXPERIENCE_MATCHING')
       return `${error.message}。可以修改问题后再试。`;
     return error.message;
@@ -85,7 +90,7 @@ export function createOnline({
   }
   function writeForm(body = '', hint = '', note = '') {
     openSheet(
-      `${closeButton()}<div class="eyebrow">写给走过这段路的人</div><h2>最近，你在演哪一集？</h2><p class="subtext">AI 会帮你整理问题、建议想找的人，最后由你确认。</p><form id="online-write"><label for="bottle-body">你正在经历什么？</label><textarea id="bottle-body" required maxlength="4000" rows="5">${escape(body)}</textarea><label for="bottle-target">想听谁说说？（可不填）</label><textarea id="bottle-target" maxlength="4000" rows="2">${escape(hint)}</textarea><p role="status" class="save-status">${escape(note)}</p><button class="primary" type="submit">让 AI 帮我整理 ↗</button></form>`,
+      `${closeButton()}<div class="eyebrow">写给走过这段路的人</div><h2>最近，你在演哪一集？</h2><p class="subtext">写好就可以发出。提交后会先审核，再寻找愿意回应的人。</p><form id="online-write"><label for="bottle-body">你正在经历什么？</label><textarea id="bottle-body" required maxlength="4000" rows="5">${escape(body)}</textarea><label for="bottle-target">想听谁说说？（可不填）</label><textarea id="bottle-target" maxlength="4000" rows="2" placeholder="不填时，寻找经历过相似处境的人">${escape(hint)}</textarea><p role="status" class="save-status">${escape(note)}</p><button class="primary" type="submit" id="send-bottle">发出瓶子 ↗</button><button class="text-button" type="submit" id="suggest-bottle">先让 AI 帮我整理（可选）</button></form>`,
     );
     const form = $('#online-write');
     form.addEventListener('input', () => {
@@ -96,6 +101,7 @@ export function createOnline({
     });
     form.addEventListener('submit', (event) => {
       event.preventDefault();
+      const suggest = event.submitter?.id === 'suggest-bottle';
       savedInput = {
         body: $('#bottle-body').value.trim(),
         hint: $('#bottle-target').value.trim(),
@@ -103,6 +109,22 @@ export function createOnline({
       if (!savedInput.body) return;
       void run(form, async () => {
         await draft.prepare(savedInput.body, savedInput.hint);
+        if (!suggest) {
+          await draft.confirm(
+            Array.from(savedInput.body).slice(0, 40).join(''),
+            {
+              requiredExperiences: [
+                savedInput.hint || '亲身经历过与这段描述相似的处境',
+              ],
+              preferredExperiences: [],
+              viewpointPreferences: [],
+            },
+          );
+          draft.clear();
+          savedInput = null;
+          launch('瓶子已发出，审核后开始寻找。可在瓶子柜查看进度。');
+          return;
+        }
         const suggestion = await draft.suggest();
         if (
           suggestion.episode.needsClarification ||
@@ -144,7 +166,7 @@ export function createOnline({
         await draft.confirm(title, confirmedTarget);
         draft.clear();
         savedInput = null;
-        launch('瓶子已提交，审核后会开始寻找。可在瓶子柜查看进度。');
+        launch('瓶子已发出，审核后开始寻找。可在瓶子柜查看进度。');
       });
     });
   }
