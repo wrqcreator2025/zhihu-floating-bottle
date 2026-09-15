@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,9 @@ func (c *Client) Run(ctx context.Context, task string, input, out any) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.Key)
+	// Zhihu Direct Answer requires a Unix timestamp. Other OpenAI-compatible
+	// providers safely ignore this extra header.
+	req.Header.Set("X-Request-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 	res, err := c.HTTP.Do(req)
 	if err != nil {
 		return domain.Fail(503, "AI_UNAVAILABLE", "内容处理暂时不可用")

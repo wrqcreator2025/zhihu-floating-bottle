@@ -39,7 +39,7 @@ API 默认监听 `127.0.0.1:8080`，健康检查为 `GET /healthz`，业务前�
 
 ## AI 接入
 
-设置 `AI_BASE_URL`、`AI_MODEL`、`AI_API_KEY`。适配器调用 `POST <AI_BASE_URL>/chat/completions`，使用 `model/messages/stream=false` 并解析 `choices[0].message.content` 的 JSON。任务提示和结构集中在 `internal/ai/ai.go`。不调用知乎直答，不生成代替真人的回信。
+默认使用知乎直答：只需设置 `ZHIHU_ACCESS_SECRET`，后端自动采用 `https://developer.zhihu.com/v1`、`zhida-fast-1p5`，并发送 Bearer 鉴权和 `X-Request-Timestamp`。也可同时显式设置 `AI_BASE_URL`、`AI_MODEL`、`AI_API_KEY` 切换到其他兼容服务。适配器调用 `POST <AI_BASE_URL>/chat/completions`，使用 `model/messages/stream=false` 并解析 `choices[0].message.content` 的 JSON。任务提示和结构集中在 `internal/ai/ai.go`。AI 只用于整理、审核和匹配，不生成代替真人的回信。
 
 未配置模型时，草稿保存和已有记录查询可用；AI 整理返回 `503 AI_UNAVAILABLE`。抛瓶和消息的后台审核不会默认通过；任务失败按重试机制保留为 `search_error` 或 `moderation_failed`。测试模型只存在于测试文件，生产没有自动放行的 mock 模式。
 

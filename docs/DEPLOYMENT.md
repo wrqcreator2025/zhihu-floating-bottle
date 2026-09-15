@@ -29,9 +29,9 @@
 | `ZHIHU_ACCESS_SECRET` | 是 | 是 | 知乎开放平台 Access Secret |
 | `ZHIHU_TOKEN_ENCRYPTION_KEY` | 是 | 是 | 32 个随机字节的 Base64 编码；两服务必须相同 |
 | `ZHIHU_OAUTH_REDIRECT_URI` | 是 | 是 | `https://<API域名>/api/v1/integrations/zhihu/callback` |
-| `AI_BASE_URL` | 是 | 是 | 兼容 OpenAI Chat Completions 的 API 根地址，带 `/v1` |
-| `AI_API_KEY` | 是 | 是 | 模型服务密钥 |
-| `AI_MODEL` | 是 | 是 | 模型名称 |
+| `AI_BASE_URL` | 可选 | 可选 | 不填时使用知乎直答；切换其他兼容服务时填写其 `/v1` 根地址 |
+| `AI_API_KEY` | 可选 | 可选 | 不填时复用 `ZHIHU_ACCESS_SECRET`；切换服务时填写模型密钥 |
+| `AI_MODEL` | 可选 | 可选 | 不填时使用 `zhida-fast-1p5`；切换服务时填写模型名称 |
 
 Railway 的 `PORT` 会自动注入，API 监听 `0.0.0.0:$PORT`，本地缺省仍是 `127.0.0.1:8080`。`MYSQL_DSN` 和 `HTTP_ADDR` 可留空。若 Dashboard 的 MySQL 服务名不是 `MySQL`，在引用选择器中选实际服务；表中名字只是示例。
 
@@ -49,11 +49,11 @@ Railway 的 `PORT` 会自动注入，API 监听 `0.0.0.0:$PORT`，本地缺省�
 
 登录后的页面已调用后端：AI 整理问题和建议目标、用户确认后抛瓶、账号瓶子柜、经历保存和编辑、接收邀请、提交审核回信和双方同意后的匿名聊天。前端不持有模型密钥。未登录的本地开发保留原交互演示；开发者指南保存在当前浏览器。
 
-部署时 API 和 worker 都必须配置 `AI_BASE_URL`、`AI_MODEL`、`AI_API_KEY`。知乎搜索的 `ZHIHU_ACCESS_SECRET` 用于获取公开讨论，不能代替当前模型配置。仅部署前端或 API 不会运行后台审核、匹配任务，必须同时启动 worker。
+部署时 API 和 worker 都配置相同的 `ZHIHU_ACCESS_SECRET`，即可同时用于知乎搜索和知乎直答。未显式设置三项 `AI_*` 变量时，后端自动使用 `https://developer.zhihu.com/v1` 和 `zhida-fast-1p5`；若 Railway 中已有占位或旧 `AI_*` 值，请删除三项，确保默认配置生效。仅部署前端或 API 不会运行后台审核、匹配任务，必须同时启动 worker。
 
 验证步骤：知乎登录后检查「✓ 知乎已登录」；打开空瓶填写问题，点击「让 AI 帮我整理」；确认页修改目标经历再抛瓶；进入瓶子柜刷新实际审核和寻找状态；在日记中保存本人经历并开放接收。需要另一个真实账号填写符合条件的经历，才能验证接收、回信和聊天。没有匹配人时不会生成 AI 回信。
 
-若显示「内容处理服务尚未配置」，检查 API 的模型地址和模型名；若显示「内容处理暂时不可用」，检查密钥、模型权限和上游网络。自动化浏览器测试模拟业务接口，不证明部署环境中的模型凭证已可用。
+若显示「内容处理服务尚未配置」，检查 API 是否存在 `ZHIHU_ACCESS_SECRET`；若显示「内容处理暂时不可用」，检查 Access Secret 状态、知乎直答权限、共享试用额度和上游网络。自动化浏览器测试模拟业务接口，不证明部署环境中的 Access Secret 已可用。
 
 ## 本地预检
 

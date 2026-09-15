@@ -29,6 +29,22 @@ func Load() (Config, error) {
 		}
 	}
 	c := Config{Env: env("APP_ENV", "development"), Addr: addr, DSN: railwayDSN(), AuthKey: os.Getenv("AUTH_SIGNING_KEY"), Issuer: env("AUTH_ISSUER", "drift-bottle"), Audience: env("AUTH_AUDIENCE", "drift-bottle-web"), Origin: env("CORS_ORIGIN", "http://localhost:5173"), Origins: os.Getenv("CORS_ORIGINS"), AIURL: os.Getenv("AI_BASE_URL"), AIKey: os.Getenv("AI_API_KEY"), AIModel: os.Getenv("AI_MODEL"), ZhihuSecret: os.Getenv("ZHIHU_ACCESS_SECRET"), AppID: os.Getenv("ZHIHU_OAUTH_APP_ID"), AppKey: os.Getenv("ZHIHU_OAUTH_APP_KEY"), Redirect: os.Getenv("ZHIHU_OAUTH_REDIRECT_URI"), SearchBudget: 500, AttemptLimit: 5, ActiveBottleLimit: 3}
+	// A Zhihu Access Secret grants access to both Search and Direct Answer.
+	// Explicit AI_* values always win, so another compatible provider remains usable.
+	if c.AIURL == "" && c.AIModel == "" && c.AIKey == "" && c.ZhihuSecret != "" {
+		c.AIURL = "https://developer.zhihu.com/v1"
+		c.AIModel = "zhida-fast-1p5"
+		c.AIKey = c.ZhihuSecret
+	}
+	aiValues := 0
+	for _, value := range []string{c.AIURL, c.AIModel, c.AIKey} {
+		if value != "" {
+			aiValues++
+		}
+	}
+	if aiValues != 0 && aiValues != 3 {
+		return c, fmt.Errorf("AI_BASE_URL, AI_MODEL and AI_API_KEY must be configured together")
+	}
 	var err error
 	if v := os.Getenv("ZHIHU_SEARCH_DAILY_BUDGET"); v != "" {
 		c.SearchBudget, err = strconv.Atoi(v)

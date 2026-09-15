@@ -11,7 +11,7 @@ import (
 func TestStructuredResponseAndProtocolFailure(t *testing.T) {
 	for i, body := range []string{`{"choices":[{"message":{"content":"{\"allowed\":false,\"reason\":\"harassment\"}"}}]}`, `{"choices":[]}`, `{"choices":[{"message":{"content":"not JSON"}}]}`} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "POST" || r.URL.Path != "/chat/completions" || r.Header.Get("Authorization") != "Bearer key" {
+			if r.Method != "POST" || r.URL.Path != "/chat/completions" || r.Header.Get("Authorization") != "Bearer key" || r.Header.Get("X-Request-Timestamp") == "" {
 				t.Error("model request mismatch")
 			}
 			fmt.Fprint(w, body)
