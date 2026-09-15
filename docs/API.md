@@ -723,7 +723,7 @@ WebSocket/SSE 是后续可选优化。首版在页面活跃时每 20 秒轮询�
 | `/api/v1/user/contents` | 已授权用户本人创作摘要，辅助活动主题提取 |
 | `/api/v1/user/followees` | 已授权用户关注简介，辅助主题；不抓取关注内容流 |
 | `/api/v1/content/zhihu_search` | 目标建议的公开语义背景；不能按昵称归属个人经历 |
-| `/v1/chat/completions` | 默认模型服务；使用 `zhida-fast-1p5` 完成整理、审核、主题提取和匹配排序 |
+| `/v1/chat/completions` | 默认模型服务；使用 `zhida-fast-1p5` 完成整理、匿名交流消息审核、主题提取和匹配排序 |
 | `/api/v1/quota` | 运维按需查询账号额度，不在每次业务请求前查询 |
 
 不接入热榜、虚构故事、全网搜索或知识库。知乎直答不代替真人回信，也不在匹配失败时生成回信。显式配置完整的 `AI_BASE_URL`、`AI_MODEL`、`AI_API_KEY` 可切换到其他 OpenAI Chat Completions 兼容服务。
@@ -734,7 +734,7 @@ WebSocket/SSE 是后续可选优化。首版在页面活跃时每 20 秒轮询�
 
 `usedToday` 和 `effectiveDailyLimit` 表示当前应用共享 Access Secret 的搜索预算（配置 1–5000，默认 500），不是每个本地用户各享一份。缓存命中不计数，预算按上海自然日重置。上游官方剩余额度可能低于本应用记录，以上游限流响应为准。
 
-授权路径见第 18 节。接口不可用或活动刷新失败时保留旧主题；没有主题时仍能根据用户问题、确认目标和本人经历匹配。该降级不绕过内容审核。
+授权路径见第 18 节。接口不可用或活动刷新失败时保留旧主题；没有主题时仍能根据用户问题、确认目标和本人经历匹配。该降级不绕过匿名交流消息审核。
 
 ## 15. 最小校验规则
 
@@ -802,7 +802,7 @@ launch 前必须已有用户确认的 `requiredExperiences`；该条件来自 AI
 
 ### 审核、版本与状态
 
-抛瓶成功仍返回 `searching`；worker 先审核最终版本，审核通过后才能投递。被拒绝则回到 `draft`，`failureReason=content_rejected`，释放寻找名额并通知所有者。用户可修改后重抛或申请复核。审核服务故障最多重试 5 次，最终 `search_error`；不会产生伪造回信。
+抛瓶成功返回 `searching`；worker 不对漂流瓶内容进行审核，直接将原文与目标经历用于推荐匹配。匹配服务故障最多重试 5 次，最终为 `search_error`，用户可重试；不会产生伪造回信。旧版本的瓶子审核记录仅保留作历史记录，不再阻止新一轮匹配。
 
 消息状态为 `pending_moderation | delivered | rejected | moderation_failed`。已送达正文不允许修改；不同内容版本的审核结果不能互用。首封回信与聊天消息均在送达后才产生对方通知。审核拦截辱骂、威胁、骚扰、诈骗、违法引导、隐私泄露，以及手机号、微信、QQ、邮箱、社交账号、二维码、外链等引导离开平台交流的内容。消息分页对象包含 `id/body/kind/deliveryStatus/contentVersion/senderRole/createdAt`。
 

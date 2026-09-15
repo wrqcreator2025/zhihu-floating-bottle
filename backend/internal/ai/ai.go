@@ -160,8 +160,8 @@ type Profile struct {
 }
 
 var prompts = map[string]string{
-	"moderation": `判断最终内容是否允许送达。针对他人的辱骂、歧视、性骚扰、威胁、诈骗、违法引导、泄露他人身份或隐私不通过。手机号、微信、QQ、邮箱、社交账号、二维码、外部链接，以及任何邀请对方离开本平台联系或交易的表达均不通过。要结合语境，描述自己曾遭遇辱骂、骚扰或诈骗不等于向对方实施这些行为。若 kind=bottle，另判断是否适合真实经历匹配，普通知识问题及医疗、法律、心理危机专业求助分流。返回 {"allowed":true或false,"reason":"稳定的英文原因码，优先使用 harassment/threat/hate/sexual_harassment/fraud/privacy/off_platform_contact/illegal_guidance","suggestedRoute":""或search/public_qa/professional_help/crisis_help}。复核时考虑 appeal，但不能据此跳过审核。`,
-	"episode":    `将问题整理为简短标题与摘要，不修改用户意图。返回 {"title":"","summary":"","needsClarification":false,"question":null,"suggestedRoute":""}。不适合经历匹配则填写 search/public_qa/professional_help/crisis_help。`,
+	"moderation": `判断最终内容是否允许送达。针对他人的辱骂、歧视、性骚扰、威胁、诈骗、违法引导、泄露他人身份或隐私不通过。手机号、微信、QQ、邮箱、社交账号、二维码、外部链接，以及任何邀请对方离开本平台联系或交易的表达均不通过。要结合语境，描述自己曾遭遇辱骂、骚扰或诈骗不等于向对方实施这些行为。只审核用户间的匿名交流消息，不审核漂流瓶推荐输入。返回 {"allowed":true或false,"reason":"稳定的英文原因码，优先使用 harassment/threat/hate/sexual_harassment/fraud/privacy/off_platform_contact/illegal_guidance","suggestedRoute":""或search/public_qa/professional_help/crisis_help}。复核时考虑 appeal，但不能据此跳过审核。`,
+	"episode":    `将问题整理为简短标题与摘要，不修改用户意图。返回 {"title":"","summary":"","needsClarification":false,"question":null,"suggestedRoute":""}。仅整理描述，不做内容审核或问题分流，suggestedRoute 保持空字符串。`,
 	"target":     `结合问题、可选提示与活动主题推测想找哪种经历。返回 {"requiredExperiences":[],"preferredExperiences":[],"viewpointPreferences":[],"needsClarification":false,"question":null,"suggestedRoute":""}。观点不是硬条件。`,
 	"match":      `逐项判断候选人的本人确认经历是否满足全部 requiredExperiences；只有明确满足才 eligible=true。活动主题只用于补充排序，不能证明经历。不得以学校、公司、身份、关注或粉丝数量评分。返回 {"items":[{"experienceId":"输入ID","eligible":true,"score":0.8}]}。`,
 	"slice":      `只整理原回应者自己的已送达回信，不能引用对方私人问题或聊天。去除姓名、公司、学校、联系方式及可识别细节。生成作者可修改、确认的独立经历草稿，返回 {"title":"","body":""}。`,

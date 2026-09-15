@@ -29,7 +29,7 @@ API 默认监听 `127.0.0.1:8080`，健康检查为 `GET /healthz`，业务前�
 
 - 独立草稿、版本确认、每人默认 3 个同时寻找瓶子、暂停/恢复/重试、寻找状态和柜子分页。`ACTIVE_BOTTLE_LIMIT` 可调高至 20，不能低于 3。
 - 本人确认经历的增删改查、接收开关和披露快照。
-- 先审核再匹配、有限多人投递、邀请接住/放行/72 小时过期、每个接收者独立连接。
+- 直接匹配、有限多人投递、邀请接住/放行/72 小时过期、每个接收者独立连接。
 - 回信持久化、内容版本审核、幂等发送、审核拒绝后修改/重试/复核。消息先经本地分层规则：明确联系方式、站外引流和违法话术直接拒绝，普通内容直接通过，只有带语境歧义的风险词句调用 AI。
 - 发信者收到首封回信后发出匿名聊天邀请，对方接受才允许继续发送；结束、举报、屏蔽、反馈。
 - 通知与单条已读、作者主动同意后生成脱敏切片、编辑及最终发布。
@@ -41,9 +41,9 @@ API 默认监听 `127.0.0.1:8080`，健康检查为 `GET /healthz`，业务前�
 
 默认使用知乎直答：只需设置 `ZHIHU_ACCESS_SECRET`，后端自动采用 `https://developer.zhihu.com/v1`、`zhida-fast-1p5`，并发送 Bearer 鉴权和 `X-Request-Timestamp`。也可同时显式设置 `AI_BASE_URL`、`AI_MODEL`、`AI_API_KEY` 切换到其他兼容服务。适配器调用 `POST <AI_BASE_URL>/chat/completions`，使用 `model/messages/stream=false` 并解析 `choices[0].message.content` 的 JSON。任务提示和结构集中在 `internal/ai/ai.go`。AI 只用于整理、审核和匹配，不生成代替真人的回信。
 
-未配置模型时，草稿保存和已有记录查询可用；AI 整理返回 `503 AI_UNAVAILABLE`。抛瓶和消息的后台审核不会默认通过；任务失败按重试机制保留为 `search_error` 或 `moderation_failed`。测试模型只存在于测试文件，生产没有自动放行的 mock 模式。
+未配置模型时，草稿保存和已有记录查询可用；AI 整理返回 `503 AI_UNAVAILABLE`。瓶子不进行内容审核，原文仅用于推荐匹配；匿名交流消息保留审核。任务失败按重试机制保留为 `search_error` 或 `moderation_failed`。测试模型只存在于测试文件，生产没有自动放行的 mock 模式。
 
-AI 适配器兼容 JSON 外的 Markdown、说明文字、前置思考块和文本内容块；格式异常时在请求期限内重试一次。截断响应、多个冲突对象和字段类型错误仍返回 `AI_PROTOCOL_ERROR`。日志仅记录任务和失败原因（如 `invalid_envelope`、`invalid_json_object`、`invalid_field_type`），不记录用户原文、模型全文或密钥。前端支持直接发瓶，整理为可选步骤；审核与匹配仍由 worker 执行。
+AI 适配器兼容 JSON 外的 Markdown、说明文字、前置思考块和文本内容块；格式异常时在请求期限内重试一次。截断响应、多个冲突对象和字段类型错误仍返回 `AI_PROTOCOL_ERROR`。日志仅记录任务和失败原因（如 `invalid_envelope`、`invalid_json_object`、`invalid_field_type`），不记录用户原文、模型全文或密钥。前端支持直接发瓶，整理为可选步骤；瓶子匹配与匿名交流消息审核仍由 worker 执行。
 
 ## 知乎接入
 

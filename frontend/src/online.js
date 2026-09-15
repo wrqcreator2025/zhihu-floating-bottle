@@ -9,7 +9,7 @@ const lines = (text) =>
 const statusText = (status) =>
   ({
     draft: '草稿',
-    searching: '已提交，审核与寻找中',
+    searching: '已发出，寻找中',
     paused: '已暂停',
     match_failed: '暂未找到合适的人',
     search_error: '寻找暂时失败，可重试',
@@ -90,7 +90,7 @@ export function createOnline({
   }
   function writeForm(body = '', hint = '', note = '') {
     openSheet(
-      `${closeButton()}<div class="eyebrow">写给走过这段路的人</div><h2>最近，你在演哪一集？</h2><p class="subtext">写好就可以发出。提交后会先审核，再寻找愿意回应的人。</p><form id="online-write"><label for="bottle-body">你正在经历什么？</label><textarea id="bottle-body" required maxlength="4000" rows="5">${escape(body)}</textarea><label for="bottle-target">想听谁说说？（可不填）</label><textarea id="bottle-target" maxlength="4000" rows="2" placeholder="不填时，寻找经历过相似处境的人">${escape(hint)}</textarea><p role="status" class="save-status">${escape(note)}</p><button class="primary" type="submit" id="send-bottle">发出瓶子 ↗</button><button class="text-button" type="submit" id="suggest-bottle">先让 AI 帮我整理（可选）</button></form>`,
+      `${closeButton()}<div class="eyebrow">写给走过这段路的人</div><h2>最近，你在演哪一集？</h2><p class="subtext">写好就可以发出。提交后会根据你的描述，寻找有相似经历、愿意回应的人。</p><form id="online-write"><label for="bottle-body">你正在经历什么？</label><textarea id="bottle-body" required maxlength="4000" rows="5">${escape(body)}</textarea><label for="bottle-target">想听谁说说？（可不填）</label><textarea id="bottle-target" maxlength="4000" rows="2" placeholder="不填时，寻找经历过相似处境的人">${escape(hint)}</textarea><p role="status" class="save-status">${escape(note)}</p><button class="primary" type="submit" id="send-bottle">发出瓶子 ↗</button><button class="text-button" type="submit" id="suggest-bottle">先让 AI 帮我整理（可选）</button></form>`,
     );
     const form = $('#online-write');
     form.addEventListener('input', () => {
@@ -122,7 +122,7 @@ export function createOnline({
           );
           draft.clear();
           savedInput = null;
-          launch('瓶子已发出，审核后开始寻找。可在瓶子柜查看进度。');
+          launch('瓶子已发出，正在寻找有相似经历的人。可在瓶子柜查看进度。');
           return;
         }
         const suggestion = await draft.suggest();
@@ -143,7 +143,7 @@ export function createOnline({
   }
   function confirmForm({ episode, target }) {
     openSheet(
-      `${closeButton()}<div class="eyebrow">AI 整理 · 等你确认</div><h2>这样表达，合你的心意吗？</h2><p class="letter-copy">${escape(episode.summary)}</p><form id="online-confirm"><label for="ai-title">给这一集起个名字</label><input id="ai-title" required maxlength="100" value="${escape(episode.title)}"><label for="ai-required">希望对方亲自经历过（每行一项）</label><textarea id="ai-required" required rows="3">${escape((target.requiredExperiences || []).join('\n'))}</textarea><label for="ai-preferred">如果还经历过这些就更好（可选）</label><textarea id="ai-preferred" rows="2">${escape((target.preferredExperiences || []).join('\n'))}</textarea><label for="ai-viewpoints">想听到的不同看法（可选）</label><textarea id="ai-viewpoints" rows="2">${escape((target.viewpointPreferences || []).join('\n'))}</textarea><p class="fine-print">${target.activityUsed ? '建议参考了可用的知乎活动主题。' : '建议基于你填写的问题；暂未使用知乎活动主题。'} 原文保持不变。提交后先审核，再寻找愿意回应的人。</p><p role="status" class="save-status"></p><div class="receive-actions"><button class="primary" type="submit">确认，抛向海面 ↗</button><button type="button" id="ai-back" class="text-button">修改原文</button></div></form>`,
+      `${closeButton()}<div class="eyebrow">AI 整理 · 等你确认</div><h2>这样表达，合你的心意吗？</h2><p class="letter-copy">${escape(episode.summary)}</p><form id="online-confirm"><label for="ai-title">给这一集起个名字</label><input id="ai-title" required maxlength="100" value="${escape(episode.title)}"><label for="ai-required">希望对方亲自经历过（每行一项）</label><textarea id="ai-required" required rows="3">${escape((target.requiredExperiences || []).join('\n'))}</textarea><label for="ai-preferred">如果还经历过这些就更好（可选）</label><textarea id="ai-preferred" rows="2">${escape((target.preferredExperiences || []).join('\n'))}</textarea><label for="ai-viewpoints">想听到的不同看法（可选）</label><textarea id="ai-viewpoints" rows="2">${escape((target.viewpointPreferences || []).join('\n'))}</textarea><p class="fine-print">${target.activityUsed ? '建议参考了可用的知乎活动主题。' : '建议基于你填写的问题；暂未使用知乎活动主题。'} 原文保持不变。提交后根据你的描述寻找愿意回应的人。</p><p role="status" class="save-status"></p><div class="receive-actions"><button class="primary" type="submit">确认，抛向海面 ↗</button><button type="button" id="ai-back" class="text-button">修改原文</button></div></form>`,
     );
     $('#ai-back').onclick = () => writeForm(savedInput.body, savedInput.hint);
     $('#ai-title').maxLength = 80;
@@ -166,7 +166,7 @@ export function createOnline({
         await draft.confirm(title, confirmedTarget);
         draft.clear();
         savedInput = null;
-        launch('瓶子已发出，审核后开始寻找。可在瓶子柜查看进度。');
+        launch('瓶子已发出，正在寻找有相似经历的人。可在瓶子柜查看进度。');
       });
     });
   }

@@ -35,6 +35,9 @@ func (fakeAI) Run(_ context.Context, task string, input, out any) error {
 		}
 		v = map[string]any{"allowed": !strings.Contains(raw, "reject-content"), "reason": "test_review"}
 	case "match":
+		if strings.Contains(raw, "provider-offline") {
+			return domain.Fail(503, "AI_UNAVAILABLE", "test outage")
+		}
 		var in struct {
 			Candidates []struct {
 				ID string `json:"experienceId"`
@@ -441,22 +444,20 @@ func TestSharedSearchBudgetAndCache(t *testing.T) {
 	}
 }
 
-func TestRejectedBottleRequiresFreshVersionAndBlocks(t *testing.T) {
+func TestBottleSkipsModerationAndPreservesBlocks(t *testing.T) {
 	f := setup(t)
 	f.experience("a")
 	bid := f.bottle("reject-content")
 	f.request("sender", "POST", "/bottles/"+bid+"/launch", nil, 200)
 	f.match(bid)
-	f.request("a", "GET", "/invitations/next", nil, 204)
 	b, err := db.Bottle(context.Background(), f.s.Store.DB, strings.TrimPrefix(bid, "btl_"), false)
-	if err != nil || b.Status != "draft" {
-		t.Fatal("rejected bottle was not preserved")
+	if err != nil || b.Status != "searching" {
+		t.Fatal("bottle did not proceed directly to matching")
 	}
-	f.request("sender", "POST", "/bottles/"+bid+"/appeal", map[string]any{"reason": "这是我的真实经历求助"}, 200)
-	f.match(bid)
-	f.request("sender", "PATCH", "/bottles/"+bid, map[string]any{"episode": map[string]any{"rawText": "正常的经历求助", "confirmed": true}}, 200)
-	f.request("sender", "POST", "/bottles/"+bid+"/launch", nil, 200)
-	f.match(bid)
+	var reviews int
+	if err := f.s.Store.DB.QueryRow(`SELECT COUNT(*) FROM moderation_reviews WHERE resource_type='bottle' AND resource_id=?`, b.ID).Scan(&reviews); err != nil || reviews != 0 {
+		t.Fatalf("unexpected bottle moderation: count=%d err=%v", reviews, err)
+	}
 	cid := f.accept("a")
 	f.request("sender", "POST", "/connections/"+cid+"/block", nil, 200)
 	f.request("a", "POST", "/connections/"+cid+"/messages", map[string]any{"body": "blocked"}, 409)

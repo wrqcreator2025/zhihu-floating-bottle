@@ -54,9 +54,6 @@ func (s *Service) Draft(ctx context.Context, u, id, kind string, version int) (a
 	if err = s.AI.Run(ctx, kind, input, &out); err != nil {
 		return nil, err
 	}
-	if out.SuggestedRoute != "" {
-		return nil, &domain.Error{Status: 422, Code: "NOT_EXPERIENCE_MATCHING", Message: "这类问题更适合其他帮助渠道", Details: map[string]string{"suggestedRoute": out.SuggestedRoute}}
-	}
 	v := map[string]any{"bottleId": domain.Public("btl", id), "sourceContentVersion": version, "needsClarification": out.Clarify, "question": out.Question}
 	if kind == "episode" {
 		if out.Title == "" || out.Summary == "" {

@@ -57,30 +57,8 @@ func (s *Service) MatchBottle(ctx context.Context, p domain.JobPayload) error {
 	if b.Status != "searching" || b.Round != p.Round {
 		return nil
 	}
-	review, err := s.review(ctx, "bottle", b.ID, b.Version, map[string]any{"question": b.Raw, "title": b.Title, "hint": b.Hint, "target": b.Target}, false)
-	if err != nil {
-		return err
-	}
-	if !*review.Allowed {
-		return s.Store.Tx(ctx, func(tx *sql.Tx) error {
-			current, e := db.Bottle(ctx, tx, b.ID, true)
-			if e != nil {
-				return e
-			}
-			if current.Round != p.Round || current.Status != "searching" {
-				return nil
-			}
-			_, e = tx.ExecContext(ctx, db.MatchBottleUpdate, b.ID)
-			if e != nil {
-				return e
-			}
-			_, e = tx.ExecContext(ctx, db.BottleActionDelete, b.ID)
-			if e != nil {
-				return e
-			}
-			return db.Notify(ctx, tx, b.Owner, "content_rejected", "bottle", b.ID, fmt.Sprintf("bottle-review:%s:%d", b.ID, b.Version), "瓶子需要修改后再抛出")
-		})
-	}
+	// Bottle text is input to recommendations, not a moderation gate.
+	// Messages exchanged between users retain their separate moderation flow.
 	var count int
 	if err = s.Store.DB.QueryRowContext(ctx, db.SearchStatusSelect, b.ID, b.Round).Scan(&count); err != nil {
 		return err
