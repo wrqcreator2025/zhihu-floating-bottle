@@ -5,7 +5,10 @@ import { createStore, GUIDE } from './store.js';
 import { createAPI } from './api.js';
 import { createOnline } from './online.js';
 
-const configuredAPI = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+const configuredAPI = (import.meta.env.VITE_API_BASE_URL ?? '').replace(
+  /\/$/,
+  '',
+);
 // Production uses Vercel's same-origin /api rewrite so OAuth and session
 // cookies are first-party. Local development still talks directly to Go.
 const API_BASE = import.meta.env.PROD ? '' : configuredAPI;
@@ -43,19 +46,59 @@ const store = createStore(storage, toast);
 let signedIn = false;
 let online = null;
 let sessionUserId = null;
+let attention = { invitations: 0, messages: 0 };
+async function refreshAttention(announce = false) {
+  if (!signedIn) return;
+  try {
+    const home = await api('/home');
+    const next = {
+      invitations: home.pendingInvitationCount || 0,
+      messages: home.unreadReplyCount || 0,
+    };
+    const previous = attention.invitations + attention.messages;
+    const total = next.invitations + next.messages;
+    attention = next;
+    renderNavigation();
+    if (announce && total > previous) {
+      const parts = [];
+      if (next.invitations) parts.push(`${next.invitations} 个待查看的问题`);
+      if (next.messages) parts.push(`${next.messages} 条新回信或聊天提醒`);
+      toast(`你有${parts.join('，')}。`);
+    }
+  } catch {
+    // Session and primary actions remain usable during a transient refresh.
+  }
+}
 async function refreshSession() {
   try {
     const profile = await api('/auth/session');
     signedIn = !!profile?.id && profile.provider === 'zhihu';
     if (signedIn && profile.id !== sessionUserId) {
       sessionUserId = profile.id;
-      online = createOnline({ api, storage, userId: profile.id, openSheet, closeButton, btn, escape, toast, launch, setView, showGuide, hasGuide: store.hasGuide });
+      online = createOnline({
+        api,
+        storage,
+        userId: profile.id,
+        openSheet,
+        closeButton,
+        btn,
+        escape,
+        toast,
+        launch,
+        setView,
+        showGuide,
+        hasGuide: store.hasGuide,
+      });
     }
   } catch {
     signedIn = false;
   }
-  if (!signedIn) { online = null; sessionUserId = null; }
+  if (!signedIn) {
+    online = null;
+    sessionUserId = null;
+  }
   renderNavigation();
+  if (signedIn) void refreshAttention(true);
 }
 let view = 'home',
   mode = 'receive',
@@ -91,6 +134,10 @@ function setView(next) {
   updateScene();
 }
 function renderNavigation() {
+  const badge = (count) =>
+    count
+      ? `<span class="attention-badge" aria-label="${count} 条待处理">${count > 99 ? '99+' : count}</span>`
+      : '';
   const captions = {
     home: ['001', '一片属于你的海。', '写下正在经历的事，让走过的人回应你。'],
     island: [
@@ -133,15 +180,18 @@ function renderNavigation() {
         ? '<span class="primary" role="status">✓ 知乎已登录</span>'
         : btn('zhihu-login', '使用知乎账号登录 ' + iconArrow, 'primary')) +
       btn('island', '靠近小岛 ' + iconArrow) +
-      btn('receive', '接收一个瓶子 ' + iconArrow) +
+      btn(
+        'receive',
+        '接收一个瓶子 ' + badge(attention.invitations) + iconArrow,
+      ) +
       btn('write', '抛出一个瓶子 ' + iconArrow),
     island:
       btn('room', '进入小屋 ' + iconArrow) +
-      btn('receive', '接收一个瓶子') +
+      btn('receive', '接收一个瓶子 ' + badge(attention.invitations)) +
       btn('write', '抛出一个瓶子') +
       btn('home', '远离小岛'),
     room:
-      btn('cabinet', '查看瓶子柜 ' + iconArrow) +
+      btn('cabinet', '查看瓶子柜 ' + badge(attention.messages) + iconArrow) +
       btn('diary', '我的经历 ' + iconArrow) +
       btn('island', '返回小岛'),
     cabinet: btn('records', '展开记录 ' + iconArrow) + btn('room', '回到小屋'),
@@ -155,7 +205,6 @@ function renderNavigation() {
   let hotspots = '';
   if (['home', 'island'].includes(view)) {
     hotspots += `<button class="hotspot" data-anchor="house" data-action="${view === 'home' ? 'island' : 'room'}" aria-label="${view === 'home' ? '靠近小岛' : '进入小屋'}"><i></i><span>${view === 'home' ? '靠近小岛' : '进入小屋'}</span></button>`;
-
   }
   if (view === 'room')
     hotspots =
@@ -207,7 +256,9 @@ sheet.addEventListener('click', (e) => {
 function showWrite() {
   if (online) return online.write();
   if (import.meta.env.PROD) {
-    openSheet(`${closeButton()}<h2>登录后，把故事寄出去。</h2><p class="subtext">使用知乎账号登录，即可让 AI 帮你整理问题，并把瓶子保存到账号。</p>${btn('zhihu-login', '使用知乎账号登录 ↗', 'primary')}`);
+    openSheet(
+      `${closeButton()}<h2>登录后，把故事寄出去。</h2><p class="subtext">使用知乎账号登录，即可让 AI 帮你整理问题，并把瓶子保存到账号。</p>${btn('zhihu-login', '使用知乎账号登录 ↗', 'primary')}`,
+    );
     return;
   }
   const draft = store.get().draft;
@@ -238,7 +289,9 @@ function showIncoming() {
   );
 }
 function showGuide(saved = false) {
-  openSheet(`${closeButton()}<div class="eyebrow">来自漂流瓶开发者 · 使用指南</div><h2>你的第一只漂流瓶。</h2><p class="letter-copy">${escape(GUIDE.body)}</p>${saved ? btn('records', '← 返回瓶子柜') : btn('keep-guide', '收好指南，开始探索', 'primary')}`);
+  openSheet(
+    `${closeButton()}<div class="eyebrow">来自漂流瓶开发者 · 使用指南</div><h2>你的第一只漂流瓶。</h2><p class="letter-copy">${escape(GUIDE.body)}</p>${saved ? btn('records', '← 返回瓶子柜') : btn('keep-guide', '收好指南，开始探索', 'primary')}`,
+  );
 }
 function showRecord(id) {
   const b = store.get().bottles.find((x) => x.id === id);
@@ -464,13 +517,13 @@ function action(a) {
     return;
   }
   switch (a) {
-	case 'zhihu-login':
-	  if (!import.meta.env.PROD && !API_BASE) {
+    case 'zhihu-login':
+      if (!import.meta.env.PROD && !API_BASE) {
         toast('登录服务尚未配置，请设置 VITE_API_BASE_URL 后重新部署。');
         break;
       }
       window.location.assign(`${API_BASE}/api/v1/auth/zhihu`);
-	  break;
+      break;
     case 'picked':
       if (view !== 'bottle') return;
       pickingUp = false;
@@ -653,6 +706,10 @@ try {
 }
 setView('home');
 void refreshSession();
+setInterval(() => void refreshAttention(true), 60_000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void refreshAttention(true);
+});
 window.addEventListener('pageshow', (event) => {
   if (event.persisted) void refreshSession();
 });

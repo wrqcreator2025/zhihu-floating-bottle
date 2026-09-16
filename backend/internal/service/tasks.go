@@ -73,7 +73,9 @@ func (s *Service) MatchBottle(ctx context.Context, p domain.JobPayload) error {
 	target := s.matchTarget(ctx, b, activity)
 	candidates := map[string]domain.Experience{}
 	ranked := []ai.Match{}
+	allInputs := []any{}
 	cursor := ""
+	deliveryLimit := s.AttemptLimit
 	for count < s.AttemptLimit {
 		rows, e := s.Store.DB.QueryContext(ctx, db.MatchBottleSelect, b.Owner, cursor, b.ID, b.Owner, b.Owner)
 		if e != nil {
@@ -95,6 +97,7 @@ func (s *Service) MatchBottle(ctx context.Context, p domain.JobPayload) error {
 			candidates[exp.ID] = exp
 			inputs = append(inputs, map[string]any{"experienceId": exp.ID, "title": exp.Title, "body": exp.Body, "activity": json.RawMessage(profile)})
 		}
+		allInputs = append(allInputs, inputs...)
 		e = rows.Err()
 		rows.Close()
 		if e != nil {
@@ -135,10 +138,19 @@ func (s *Service) MatchBottle(ctx context.Context, p domain.JobPayload) error {
 			ranked = append(ranked, matching.Order(out.Items)...)
 		}
 		users := map[string]bool{}
-		for _, m := range ranked {
-			users[candidates[m.ExperienceID].Owner] = true
+		for _, candidate := range candidates {
+			users[candidate.Owner] = true
 		}
-		if len(users) >= s.AttemptLimit-count || len(inputs) < 200 {
+		// A small pool benefits more from reach than ranking precision: when
+		// fewer than ten distinct people are available, invite all of them.
+		// Once ten are known, the normal attempt limit remains sufficient.
+		if len(users) >= 10 || len(inputs) < 200 {
+			deliveryLimit = matchDeliveryLimit(s.AttemptLimit, count, len(users))
+			if len(users) < 10 {
+				// In a genuinely small pool everyone receives the bottle; AI only
+				// influences larger-pool ranking and cannot exclude a person here.
+				ranked = matching.Order(broadMatches(allInputs))
+			}
 			break
 		}
 	}
@@ -154,7 +166,7 @@ func (s *Service) MatchBottle(ctx context.Context, p domain.JobPayload) error {
 			return e
 		}
 		for _, m := range ranked {
-			if count >= s.AttemptLimit {
+			if count >= deliveryLimit {
 				break
 			}
 			exp, ok := candidates[m.ExperienceID]
@@ -222,6 +234,13 @@ func (s *Service) MatchBottle(ctx context.Context, p domain.JobPayload) error {
 		}
 		return nil
 	})
+}
+
+func matchDeliveryLimit(configured, attempted, candidates int) int {
+	if candidates < 10 {
+		return attempted + candidates
+	}
+	return configured
 }
 
 func (s *Service) matchTarget(ctx context.Context, b domain.Bottle, activity any) domain.Target {
@@ -319,16 +338,18 @@ func (s *Service) ModerateMessage(ctx context.Context, p domain.JobPayload) erro
 			return nil
 		}
 		notification := "chat_message_received"
+		title := "匿名聊天有一条新消息"
 		if kind == "reply" {
 			_, e = tx.ExecContext(ctx, db.ModerateMessageUpdate2, cid)
 			notification = "first_reply_received"
+			title = "你收到了一封回信"
 		} else {
 			_, e = tx.ExecContext(ctx, db.ModerateMessageUpdate3, cid)
 		}
 		if e != nil {
 			return e
 		}
-		return db.Notify(ctx, tx, c.Other(sender), notification, "connection", cid, "message:"+p.ID, "有人寄来了一封信")
+		return db.Notify(ctx, tx, c.Other(sender), notification, "connection", cid, "message:"+p.ID, title)
 	})
 }
 func (s *Service) GenerateSlice(ctx context.Context, p domain.JobPayload) error {

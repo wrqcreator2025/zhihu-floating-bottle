@@ -8,6 +8,26 @@ import (
 	"driftbottle/internal/domain"
 )
 
+func TestSmallPoolDeliveryLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		attempted  int
+		candidates int
+		want       int
+	}{
+		{name: "small pool reaches everyone", attempted: 0, candidates: 8, want: 8},
+		{name: "small remaining pool extends prior attempts", attempted: 2, candidates: 7, want: 9},
+		{name: "ten candidates retains configured cap", attempted: 0, candidates: 10, want: 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchDeliveryLimit(5, tt.attempted, tt.candidates); got != tt.want {
+				t.Fatalf("matchDeliveryLimit() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 type targetAI struct{}
 
 func (targetAI) Run(_ context.Context, task string, _ any, out any) error {

@@ -116,7 +116,7 @@ const (
 
 	DecideSelect3 = `SELECT id FROM connections WHERE invitation_id=?`
 
-	HomeSelect = `SELECT (SELECT COUNT(*) FROM match_invitations i JOIN bottles b ON b.id=i.bottle_id WHERE recipient_id=? AND i.status='pending' AND expires_at>UTC_TIMESTAMP(6) AND NOT EXISTS(SELECT 1 FROM user_blocks x WHERE (x.blocker_id=i.recipient_id AND x.blocked_id=b.owner_id) OR (x.blocker_id=b.owner_id AND x.blocked_id=i.recipient_id))),(SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL AND type IN ('first_reply_received','chat_message_received')),(SELECT COUNT(*) FROM bottles WHERE owner_id=? AND launched_at IS NOT NULL),(SELECT COUNT(*) FROM connections WHERE responder_id=?),(SELECT COUNT(*) FROM experiences WHERE owner_id=?)`
+	HomeSelect = `SELECT (SELECT COUNT(*) FROM match_invitations i JOIN bottles b ON b.id=i.bottle_id WHERE recipient_id=? AND i.status='pending' AND expires_at>UTC_TIMESTAMP(6) AND NOT EXISTS(SELECT 1 FROM user_blocks x WHERE (x.blocker_id=i.recipient_id AND x.blocked_id=b.owner_id) OR (x.blocker_id=b.owner_id AND x.blocked_id=i.recipient_id))),(SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL AND type IN ('first_reply_received','chat_message_received','chat_invited')),(SELECT COUNT(*) FROM bottles WHERE owner_id=? AND launched_at IS NOT NULL),(SELECT COUNT(*) FROM connections WHERE responder_id=?),(SELECT COUNT(*) FROM experiences WHERE owner_id=?)`
 
 	HomeActiveBottles = `SELECT bottle_id FROM active_search_slots WHERE user_id=? ORDER BY bottle_id DESC`
 
