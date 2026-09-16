@@ -52,7 +52,8 @@ async function refreshAttention(announce = false) {
   try {
     const home = await api('/home');
     const next = {
-      invitations: home.pendingInvitationCount || 0,
+      invitations:
+        home.unreadInvitationCount ?? home.pendingInvitationCount ?? 0,
       messages: home.unreadReplyCount || 0,
     };
     const previous = attention.invitations + attention.messages;
@@ -67,6 +68,40 @@ async function refreshAttention(announce = false) {
     }
   } catch {
     // Session and primary actions remain usable during a transient refresh.
+  }
+}
+async function acknowledgeAttention(kind) {
+  attention = { ...attention, [kind]: 0 };
+  renderNavigation();
+  try {
+    const types =
+      kind === 'invitations'
+        ? new Set(['invitation_received'])
+        : new Set([
+            'first_reply_received',
+            'chat_message_received',
+            'chat_invited',
+          ]);
+    let cursor = '';
+    do {
+      const result = await api(
+        `/notifications?unreadOnly=true&limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+        { envelope: true },
+      );
+      await Promise.all(
+        result.data
+          .filter((notice) => types.has(notice.type))
+          .map((notice) =>
+            api(`/notifications/${encodeURIComponent(notice.id)}/read`, {
+              method: 'POST',
+            }),
+          ),
+      );
+      cursor = result.nextCursor || '';
+    } while (cursor);
+    await refreshAttention(false);
+  } catch {
+    // Keep the acknowledgement immediate; a later refresh can retry safely.
   }
 }
 async function refreshSession() {
@@ -410,7 +445,10 @@ function recordStatus(bottle) {
 }
 
 function records() {
-  if (online) return online.records(tab);
+  if (online) {
+    void acknowledgeAttention('messages');
+    return online.records(tab);
+  }
   setView('cabinet');
   const all = store
     .get()
@@ -550,6 +588,7 @@ function action(a) {
       break;
     case 'cabinet':
       if (sheet.open) closeSheet();
+      if (online) void acknowledgeAttention('messages');
       setView('cabinet');
       break;
     case 'records':
@@ -624,8 +663,10 @@ function action(a) {
       if (!store.hasGuide()) {
         prepareBottle('receive');
         currentIncoming = GUIDE;
-      } else if (online) void online.receive();
-      else toast('暂时没有新的来信。');
+      } else if (online) {
+        void acknowledgeAttention('invitations');
+        void online.receive();
+      } else toast('暂时没有新的来信。');
       break;
     case 'keep-guide':
       store.keepGuide();

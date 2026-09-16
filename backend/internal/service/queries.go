@@ -12,8 +12,8 @@ import (
 )
 
 func (s *Service) Home(ctx context.Context, u string) (any, error) {
-	var pending, unread, sent, received, experiences int
-	err := s.Store.DB.QueryRowContext(ctx, db.HomeSelect, u, u, u, u, u).Scan(&pending, &unread, &sent, &received, &experiences)
+	var pending, unread, sent, received, experiences, unreadInvitations int
+	err := s.Store.DB.QueryRowContext(ctx, db.HomeSelect, u, u, u, u, u, u).Scan(&pending, &unread, &sent, &received, &experiences, &unreadInvitations)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +37,7 @@ func (s *Service) Home(ctx context.Context, u string) (any, error) {
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-	return map[string]any{"activeBottles": active, "activeBottleLimit": s.ActiveBottleLimit, "pendingInvitationCount": pending, "unreadReplyCount": unread, "cabinet": map[string]int{"sentCount": sent, "receivedCount": received}, "experienceCount": experiences}, nil
+	return map[string]any{"activeBottles": active, "activeBottleLimit": s.ActiveBottleLimit, "pendingInvitationCount": pending, "unreadInvitationCount": unreadInvitations, "unreadReplyCount": unread, "cabinet": map[string]int{"sentCount": sent, "receivedCount": received}, "experienceCount": experiences}, nil
 }
 func (s *Service) Cabinet(ctx context.Context, u, direction, cursor string, limit int) ([]any, *string, error) {
 	query := db.CabinetSelect
