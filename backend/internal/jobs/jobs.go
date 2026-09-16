@@ -86,8 +86,7 @@ func (w *Worker) finish(ctx context.Context, j domain.Job, p domain.JobPayload, 
 			permanent = de.Status == 400 || de.Status == 404 || de.Status == 409 || de.Status == 422
 		}
 		slog.Warn("background task failed", "type", j.Type, "code", code, "attempt", j.Attempts)
-		if j.Attempts < 5 && !permanent {
-			delay := min(1800, (1<<min(j.Attempts, 10))+rand.IntN(3))
+		if retry, delay := retryPlan(code, j.Attempts); retry && !permanent {
 			_, err = tx.ExecContext(ctx, db.FinishUpdate2, delay, code, j.ID)
 			return err
 		}
@@ -121,6 +120,16 @@ func (w *Worker) finish(ctx context.Context, j domain.Job, p domain.JobPayload, 
 		return err
 	})
 }
+
+func retryPlan(code string, attempts int) (bool, int) {
+	if code == "AI_HTTP_429" {
+		delay := min(7200, 60*(1<<min(max(attempts-1, 0), 7))+rand.IntN(30))
+		return attempts < 12, delay
+	}
+	delay := min(1800, (1<<min(attempts, 10))+rand.IntN(3))
+	return attempts < 5, delay
+}
+
 func (w *Worker) Recover(ctx context.Context) error {
 	return w.Service.Store.Tx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, db.RecoverUpdate); err != nil {

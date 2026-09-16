@@ -57,6 +57,8 @@ Railway 的 `PORT` 会自动注入，API 监听 `0.0.0.0:$PORT`，本地缺省�
 
 `AI_PROTOCOL_ERROR` 表示模型结果无法按约定读取，适配器会自动重试一次；可按 API/worker 日志中的 `AI response rejected` 查看 `task` 和 `reason`。前端整理失败时保留原稿并提供直接发送入口；直接发送成功仅表示提交成功，后续匹配仍需要有效模型配置及运行中的 worker。
 
+`AI_HTTP_429` 表示模型上游限流或额度暂不可用。worker 会把这类任务保留为 pending 并用更长退避重试；若最终仍 failed，需要等待额度恢复后重新发起寻找或重试瓶子。
+
 ## 本地预检
 
 ```sh

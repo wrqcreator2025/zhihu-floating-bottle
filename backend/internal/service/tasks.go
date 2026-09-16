@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"driftbottle/internal/ai"
 	"driftbottle/internal/domain"
@@ -101,15 +102,21 @@ func (s *Service) MatchBottle(ctx context.Context, p domain.JobPayload) error {
 			if e = s.AI.Run(ctx, "match", map[string]any{"question": b.Raw, "target": b.Target, "activity": activity, "candidates": inputs}, &out); e != nil {
 				return e
 			}
-			if len(out.Items) != len(inputs) {
-				return domain.Fail(503, "AI_PROTOCOL_ERROR", "匹配结果不完整")
-			}
 			seen := map[string]bool{}
 			for _, item := range out.Items {
 				if _, ok := candidates[item.ExperienceID]; !ok || seen[item.ExperienceID] {
 					return domain.Fail(503, "AI_PROTOCOL_ERROR", "匹配结果无效")
 				}
 				seen[item.ExperienceID] = true
+			}
+			if len(out.Items) < len(inputs) {
+				slog.WarnContext(ctx, "AI match returned partial candidates", "expected", len(inputs), "actual", len(out.Items))
+				for _, input := range inputs {
+					id, ok := input.(map[string]any)["experienceId"].(string)
+					if ok && !seen[id] {
+						out.Items = append(out.Items, ai.Match{ExperienceID: id})
+					}
+				}
 			}
 			ranked = append(ranked, matching.Order(out.Items)...)
 		}
