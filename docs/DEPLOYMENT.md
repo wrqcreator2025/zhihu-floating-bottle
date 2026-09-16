@@ -55,7 +55,7 @@ Railway 的 `PORT` 会自动注入，API 监听 `0.0.0.0:$PORT`，本地缺省�
 
 若显示「内容处理服务尚未配置」，检查 API 是否存在 `ZHIHU_ACCESS_SECRET`；若显示「内容处理暂时不可用」，检查 Access Secret 状态、知乎直答权限、共享试用额度和上游网络。自动化浏览器测试模拟业务接口，不证明部署环境中的 Access Secret 已可用。
 
-`AI_PROTOCOL_ERROR` 表示模型结果无法按约定读取，适配器会自动重试一次；可按 API/worker 日志中的 `AI response rejected` 查看 `task` 和 `reason`。前端整理失败时保留原稿并提供直接发送入口；直接发送成功仅表示提交成功，后续匹配仍需要有效模型配置及运行中的 worker。
+`AI_PROTOCOL_ERROR` 表示模型结果无法按约定读取，适配器会自动重试一次；可按 API/worker 日志中的 `AI response rejected` 查看 `task` 和 `reason`。前端整理失败时保留原稿并提供直接发送入口；直接发送成功仅表示提交成功。worker 会在后台继续尝试识别主题和排序候选；若匹配 AI 暂时不可用，会降级为更宽的候选投递，尽量避免直接失败。
 
 `AI_HTTP_429` 表示模型上游限流或额度暂不可用。worker 会把这类任务保留为 pending 并用更长退避重试；若最终仍 failed，需要等待额度恢复后重新发起寻找或重试瓶子。
 

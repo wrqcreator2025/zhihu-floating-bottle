@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"driftbottle/internal/ai"
 	"driftbottle/internal/domain"
@@ -64,6 +65,12 @@ func (s *Service) MatchBottle(ctx context.Context, p domain.JobPayload) error {
 	if err = s.Store.DB.QueryRowContext(ctx, db.SearchStatusSelect, b.ID, b.Round).Scan(&count); err != nil {
 		return err
 	}
+	activity, _, err := s.Activity(ctx, b.Owner)
+	if err != nil {
+		slog.WarnContext(ctx, "activity unavailable for matching", "bottle_id", b.ID)
+		activity = nil
+	}
+	target := s.matchTarget(ctx, b, activity)
 	candidates := map[string]domain.Experience{}
 	ranked := []ai.Match{}
 	cursor := ""
@@ -94,27 +101,34 @@ func (s *Service) MatchBottle(ctx context.Context, p domain.JobPayload) error {
 			return e
 		}
 		if len(inputs) > 0 {
-			activity, _, e := s.Activity(ctx, b.Owner)
-			if e != nil {
-				return e
-			}
 			var out ai.Matches
-			if e = s.AI.Run(ctx, "match", map[string]any{"question": b.Raw, "target": b.Target, "activity": activity, "candidates": inputs}, &out); e != nil {
-				return e
+			if e = s.AI.Run(ctx, "match", map[string]any{"question": b.Raw, "target": target, "activity": activity, "candidates": inputs}, &out); e != nil {
+				slog.WarnContext(ctx, "AI match unavailable; using broad candidate order", "bottle_id", b.ID)
+				out.Items = broadMatches(inputs)
 			}
 			seen := map[string]bool{}
+			valid := true
 			for _, item := range out.Items {
 				if _, ok := candidates[item.ExperienceID]; !ok || seen[item.ExperienceID] {
-					return domain.Fail(503, "AI_PROTOCOL_ERROR", "匹配结果无效")
+					valid = false
+					break
 				}
 				seen[item.ExperienceID] = true
+			}
+			if !valid {
+				slog.WarnContext(ctx, "AI match returned invalid candidates; using broad candidate order", "bottle_id", b.ID)
+				out.Items = broadMatches(inputs)
+				seen = map[string]bool{}
+				for _, item := range out.Items {
+					seen[item.ExperienceID] = true
+				}
 			}
 			if len(out.Items) < len(inputs) {
 				slog.WarnContext(ctx, "AI match returned partial candidates", "expected", len(inputs), "actual", len(out.Items))
 				for _, input := range inputs {
 					id, ok := input.(map[string]any)["experienceId"].(string)
 					if ok && !seen[id] {
-						out.Items = append(out.Items, ai.Match{ExperienceID: id})
+						out.Items = append(out.Items, ai.Match{ExperienceID: id, Eligible: true, Score: 0.1})
 					}
 				}
 			}
@@ -209,6 +223,43 @@ func (s *Service) MatchBottle(ctx context.Context, p domain.JobPayload) error {
 		return nil
 	})
 }
+
+func (s *Service) matchTarget(ctx context.Context, b domain.Bottle, activity any) domain.Target {
+	var out ai.Draft
+	err := s.AI.Run(ctx, "target", map[string]any{"question": b.Raw, "hint": b.Hint, "activity": activity, "confirmedTarget": b.Target}, &out)
+	if err == nil && (len(out.Required) > 0 || len(out.Preferred) > 0 || len(out.Viewpoints) > 0) {
+		target := domain.Target{Required: out.Required, Preferred: out.Preferred, Viewpoints: out.Viewpoints}
+		target.Normalize()
+		if len(target.Required) > 0 || len(target.Preferred) > 0 || len(target.Viewpoints) > 0 {
+			return target
+		}
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "AI target unavailable; using submitted target", "bottle_id", b.ID)
+	}
+	target := b.Target
+	target.Normalize()
+	if len(target.Required) == 0 {
+		if strings.TrimSpace(b.Hint) != "" {
+			target.Required = []string{strings.TrimSpace(b.Hint)}
+		} else {
+			target.Required = []string{"亲身经历过与这段描述相似的处境"}
+		}
+	}
+	return target
+}
+
+func broadMatches(inputs []any) []ai.Match {
+	items := make([]ai.Match, 0, len(inputs))
+	for _, input := range inputs {
+		id, ok := input.(map[string]any)["experienceId"].(string)
+		if ok {
+			items = append(items, ai.Match{ExperienceID: id, Eligible: true, Score: 0.1})
+		}
+	}
+	return items
+}
+
 func (s *Service) ModerateMessage(ctx context.Context, p domain.JobPayload) error {
 	var cid, body, status string
 	var version int

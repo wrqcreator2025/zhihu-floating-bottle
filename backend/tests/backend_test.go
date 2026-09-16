@@ -299,7 +299,7 @@ func TestConcurrentLaunchAndPause(t *testing.T) {
 		t.Fatal(home)
 	}
 }
-func TestModerationRejectRetryAndWorkerFailure(t *testing.T) {
+func TestModerationRejectRetryAndMatchFallback(t *testing.T) {
 	f := setup(t)
 	f.experience("a")
 	bid := f.bottle("普通求助")
@@ -318,7 +318,7 @@ func TestModerationRejectRetryAndWorkerFailure(t *testing.T) {
 	if e := f.s.ModerateMessage(context.Background(), domain.JobPayload{ID: strings.TrimPrefix(mid, "msg_"), Version: 2}); e != nil {
 		t.Fatal(e)
 	}
-	// Claim a dedicated failed task at max attempts; actual outbox transition and resource update are exercised.
+	// Matching AI failures should degrade to broad matching instead of failing the bottle.
 	f.request("sender", "POST", "/bottles/"+bid+"/pause", nil, 200)
 	failed := f.bottle("provider-offline")
 	f.request("sender", "POST", "/bottles/"+failed+"/launch", nil, 200)
@@ -332,9 +332,9 @@ func TestModerationRejectRetryAndWorkerFailure(t *testing.T) {
 	if e != nil || !worked {
 		t.Fatalf("worker: %v", e)
 	}
-	status := data(f.request("sender", "GET", "/bottles/"+failed+"/search-status", nil, 200))["status"]
-	if status != "search_error" {
-		t.Fatalf("got %v", status)
+	search := data(f.request("sender", "GET", "/bottles/"+failed+"/search-status", nil, 200))
+	if search["status"] != "searching" || int(search["attemptedCount"].(float64)) == 0 {
+		t.Fatalf("matching did not fall back: %v", search)
 	}
 }
 func TestValidationAndUnavailableCapabilities(t *testing.T) {
