@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"database/sql"
+	"strings"
+	"unicode/utf8"
 
 	"driftbottle/internal/domain"
 	db "driftbottle/internal/repository/mysql"
@@ -180,6 +182,11 @@ func (s *Service) BottleAction(ctx context.Context, u, id, action string, target
 			return err
 		}
 		b.Status = "searching"
+		if action == "launch" {
+			if _, err = tx.ExecContext(ctx, db.BottleExperienceUpsert, id, u, bottleExperienceTitle(b), b.Raw); err != nil {
+				return err
+			}
+		}
 		return db.Enqueue(ctx, tx, "match_bottle", domain.JobPayload{ID: id, Round: b.Round}, "")
 	})
 	if err != nil {
@@ -250,4 +257,19 @@ func (s *Service) AppealBottle(ctx context.Context, u, id, reason string) (any, 
 		return nil, err
 	}
 	return s.BottleAction(ctx, u, id, "launch", nil)
+}
+
+func bottleExperienceTitle(b domain.Bottle) string {
+	title := strings.TrimSpace(b.Title)
+	if title == "" {
+		title = strings.TrimSpace(b.Raw)
+	}
+	if utf8.RuneCountInString(title) > 40 {
+		runes := []rune(title)
+		title = string(runes[:40])
+	}
+	if title == "" {
+		return "一段正在经历的事"
+	}
+	return title
 }

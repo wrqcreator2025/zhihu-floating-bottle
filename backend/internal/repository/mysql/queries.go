@@ -102,6 +102,8 @@ const (
 
 	DeleteExperienceDelete = `DELETE FROM experiences WHERE id=? AND owner_id=?`
 
+	BottleExperienceUpsert = `INSERT INTO experiences(id,owner_id,title,body,confirmed_by_user,receive_open,disclosure,source) VALUES (?,?,?,?,1,0,JSON_OBJECT('summary',true,'timeRange',false,'domain',false),'bottle') ON DUPLICATE KEY UPDATE title=IF(source='bottle',VALUES(title),title),body=IF(source='bottle',VALUES(body),body),confirmed_by_user=IF(source='bottle',1,confirmed_by_user),updated_at=IF(source='bottle',UTC_TIMESTAMP(6),updated_at)`
+
 	NextInvitationSelect = `SELECT i.id,i.bottle_id,COALESCE(i.matched_experience_id,''),i.reason,i.expires_at,COALESCE(b.episode_title,''),b.episode_raw,COALESCE(b.target_hint,'') FROM match_invitations i JOIN bottles b ON b.id=i.bottle_id WHERE i.recipient_id=? AND i.status='pending' AND i.expires_at>UTC_TIMESTAMP(6) AND NOT EXISTS(SELECT 1 FROM user_blocks x WHERE (x.blocker_id=i.recipient_id AND x.blocked_id=b.owner_id) OR (x.blocker_id=b.owner_id AND x.blocked_id=i.recipient_id)) ORDER BY i.id LIMIT 1`
 
 	DecideSelect = `SELECT bottle_id FROM match_invitations WHERE id=? AND recipient_id=?`

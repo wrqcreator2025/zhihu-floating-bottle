@@ -185,6 +185,11 @@ func TestBackendFlow(t *testing.T) {
 	f.request("outsider", "GET", "/bottles/"+bid, nil, 404)
 	f.request("sender", "POST", "/bottles/"+bid+"/launch", nil, 200)
 	f.request("sender", "POST", "/bottles/"+bid+"/launch", nil, 200)
+	var expSource string
+	var expOpen bool
+	if err := f.s.Store.DB.QueryRow(`SELECT source,receive_open FROM experiences WHERE id=? AND owner_id=?`, strings.TrimPrefix(bid, "btl_"), f.subjects["sender"]).Scan(&expSource, &expOpen); err != nil || expSource != "bottle" || expOpen {
+		t.Fatalf("launched bottle was not saved as a private experience: source=%q open=%v err=%v", expSource, expOpen, err)
+	}
 	other := f.bottle("另一个独立的瓶子")
 	f.request("sender", "POST", "/bottles/"+other+"/launch", nil, 200)
 	f.match(bid)
